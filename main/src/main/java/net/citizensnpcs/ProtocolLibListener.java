@@ -48,6 +48,7 @@ import net.citizensnpcs.trait.RotationTrait;
 import net.citizensnpcs.trait.RotationTrait.PacketRotationSession;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.SkinProperty;
+import net.citizensnpcs.util.Util;
 
 public class ProtocolLibListener implements Listener {
     private ProtocolManager manager;
@@ -65,7 +66,6 @@ public class ProtocolLibListener implements Listener {
                 NPC npc = getNPCFromPacket(event);
                 if (npc == null)
                     return;
-
                 PacketContainer packet = event.getPacket();
                 int version = manager.getProtocolVersion(event.getPlayer());
                 if (npc.data().has(NPC.Metadata.HOLOGRAM_RENDERER)) {
@@ -168,7 +168,8 @@ public class ProtocolLibListener implements Listener {
                     if (playerProfile == null) {
                         playerProfile = NMS.getProfile(event.getPlayer());
                         wgp = WrappedGameProfile.fromPlayer(event.getPlayer());
-                        playerName = WrappedChatComponent.fromText(event.getPlayer().getDisplayName());
+                        playerName = WrappedChatComponent.fromText(
+                                Util.possiblyStripBedrockPrefix(event.getPlayer().getDisplayName(), wgp.getUUID()));
                     }
                     if (trait.mirrorName()) {
                         list.set(i, new PlayerInfoData(wgp.withId(npcInfo.getProfile().getId()), npcInfo.getLatency(),
@@ -221,13 +222,15 @@ public class ProtocolLibListener implements Listener {
                     return;
 
                 PacketRotationSession session = trait.getPacketSession(event.getPlayer());
+
                 if (session == null || !session.isActive())
                     return;
 
                 PacketContainer packet = event.getPacket();
                 PacketType type = event.getPacketType();
-                Messaging.debug(session.getBodyYaw(), session.getHeadYaw(),
-                        "OVERWRITTEN " + type + " " + packet.getHandle());
+                Messaging.debug("Modifying body/head yaw for", eid, "->", event.getPlayer().getName(),
+                        session.getBodyYaw(), degToByte(session.getBodyYaw()), session.getHeadYaw(),
+                        degToByte(session.getHeadYaw()), session.getPitch(), type);
                 if (type == Server.ENTITY_HEAD_ROTATION) {
                     packet.getBytes().write(0, degToByte(session.getHeadYaw()));
                 } else if (type == Server.ENTITY_LOOK || type == Server.ENTITY_MOVE_LOOK

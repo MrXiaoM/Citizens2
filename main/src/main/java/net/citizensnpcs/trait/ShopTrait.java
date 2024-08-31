@@ -13,6 +13,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
@@ -22,7 +23,6 @@ import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.InventoryType.SlotType;
 import org.bukkit.event.inventory.TradeSelectEvent;
 import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Merchant;
 import org.bukkit.inventory.MerchantRecipe;
@@ -245,6 +245,10 @@ public class ShopTrait extends Trait {
                     if (display != null && evt.isShiftClick() && evt.getCursorNonNull().getType() == Material.AIR
                             && display.display != null) {
                         copying = display.clone();
+                        if (!evt.isRightClick()) {
+                            shopPage.setItem(idx, null);
+                            slot.setItemStack(null);
+                        }
                         evt.setCursor(display.getDisplayItem(null));
                         evt.setCancelled(true);
                         return;
@@ -253,6 +257,7 @@ public class ShopTrait extends Trait {
                         if (copying != null && evt.getCursorNonNull().getType() != Material.AIR
                                 && evt.getCursorNonNull().equals(copying.getDisplayItem(null))) {
                             shopPage.setItem(idx, copying);
+                            slot.setItemStack(copying.getDisplayItem(null));
                             copying = null;
                             return;
                         }
@@ -333,7 +338,7 @@ public class ShopTrait extends Trait {
         @Persist
         private String clickToConfirmMessage;
         @Persist
-        private final List<NPCShopAction> cost = Lists.newArrayList();
+        private List<NPCShopAction> cost = Lists.newArrayList();
         @Persist
         private String costMessage;
         @Persist
@@ -343,7 +348,7 @@ public class ShopTrait extends Trait {
         @Persist(keyType = UUID.class)
         private final Map<UUID, Integer> purchases = Maps.newHashMap();
         @Persist
-        private final List<NPCShopAction> result = Lists.newArrayList();
+        private List<NPCShopAction> result = Lists.newArrayList();
         @Persist
         private String resultMessage;
         @Persist
@@ -392,7 +397,16 @@ public class ShopTrait extends Trait {
         @Override
         public NPCShopItem clone() {
             try {
-                return (NPCShopItem) super.clone();
+                NPCShopItem dup = (NPCShopItem) super.clone();
+                dup.cost = Lists.newArrayList();
+                for (NPCShopAction src : cost) {
+                    dup.cost.add(src.clone());
+                }
+                dup.result = Lists.newArrayList();
+                for (NPCShopAction src : result) {
+                    dup.result.add(src.clone());
+                }
+                return dup;
             } catch (CloneNotSupportedException e) {
                 throw new Error(e);
             }
@@ -482,6 +496,9 @@ public class ShopTrait extends Trait {
             if (timesPurchasable > 0) {
                 purchases.put(player.getUniqueId(), purchases.getOrDefault(player.getUniqueId(), 0) + 1);
             }
+            if (NPCShopPurchaseEvent.HANDLERS.getRegisteredListeners().length > 0) {
+                Bukkit.getPluginManager().callEvent(new NPCShopPurchaseEvent(player, shop, this));
+            }
         }
 
         private String placeholders(String string, Player player) {
@@ -503,7 +520,7 @@ public class ShopTrait extends Trait {
         public void save(DataKey key) {
         }
 
-        private static Pattern PLACEHOLDER_REGEX = Pattern.compile("<(cost|result)>", Pattern.CASE_INSENSITIVE);
+        private static final Pattern PLACEHOLDER_REGEX = Pattern.compile("<(cost|result)>", Pattern.CASE_INSENSITIVE);
     }
 
     @Menu(title = "NPC Shop Item Editor", type = InventoryType.CHEST, dimensions = { 6, 9 })
@@ -748,6 +765,37 @@ public class ShopTrait extends Trait {
         }
     }
 
+    public static class NPCShopPurchaseEvent extends Event {
+        private final NPCShopItem item;
+        private final Player player;
+        private final NPCShop shop;
+
+        public NPCShopPurchaseEvent(Player player, NPCShop shop, NPCShopItem item) {
+            this.player = player;
+            this.shop = shop;
+            this.item = item;
+        }
+
+        @Override
+        public HandlerList getHandlers() {
+            return HANDLERS;
+        }
+
+        public NPCShopItem getItem() {
+            return item;
+        }
+
+        public Player getPlayer() {
+            return player;
+        }
+
+        public NPCShop getShop() {
+            return shop;
+        }
+
+        private static final HandlerList HANDLERS = new HandlerList();
+    }
+
     @Menu(title = "NPC Shop Editor", type = InventoryType.CHEST, dimensions = { 1, 9 })
     public static class NPCShopSettings extends InventoryMenuPage {
         private MenuContext ctx;
@@ -849,7 +897,7 @@ public class ShopTrait extends Trait {
                 ctx.getSlot(i).setClickHandler(evt -> {
                     evt.setCancelled(true);
                     item.onClick(shop, (Player) evt.getWhoClicked(),
-                            new InventoryMultiplexer(((Player) evt.getWhoClicked()).getInventory()), evt.isShiftClick(),
+                            new InventoryMultiplexer(evt.getWhoClicked().getInventory()), evt.isShiftClick(),
                             lastClickedItem == item);
                     lastClickedItem = item;
                 });
@@ -895,7 +943,7 @@ public class ShopTrait extends Trait {
         private int selectedTrade = -1;
         private final NPCShop shop;
         private final Map<Integer, NPCShopItem> trades;
-        private final InventoryView view;
+        private final Object view;
 
         public NPCTraderShopViewer(NPCShop shop, Player player) {
             this.shop = shop;

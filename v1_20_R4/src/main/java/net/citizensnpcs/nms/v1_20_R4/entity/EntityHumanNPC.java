@@ -58,6 +58,11 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public class EntityHumanNPC extends ServerPlayer implements NPCHolder, SkinnableEntity, ForwardingMobAI {
+    @Override
+    public boolean broadcastToPlayer(ServerPlayer player) {
+        return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
+    }
+
     private MobAI ai;
     private int jumpTicks = 0;
     private final CitizensNPC npc;
@@ -136,7 +141,6 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
             moveOnCurrentHeading();
         }
         tickAI();
-        detectEquipmentUpdatesPublic();
         noPhysics = isSpectator();
         if (isSpectator()) {
             onGround = false;
@@ -354,6 +358,12 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
         if (npc == null)
             return;
 
+        detectEquipmentUpdatesPublic();
+        float scale = this.getScale();
+        if (scale != this.appliedScale) {
+            appliedScale = scale;
+            refreshDimensions();
+        }
         Bukkit.getServer().getPluginManager().unsubscribeFromPermission("bukkit.broadcast.user", getBukkitEntity());
         updatePackets(npc.getNavigator().isNavigating());
         npc.update();

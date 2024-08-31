@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -24,7 +25,6 @@ import org.bukkit.DyeColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Rotation;
 import org.bukkit.Sound;
@@ -44,13 +44,14 @@ import org.bukkit.entity.Horse;
 import org.bukkit.entity.Ocelot;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Rabbit;
-import org.bukkit.entity.Villager.Profession;
 import org.bukkit.entity.Wolf;
 import org.bukkit.entity.Zombie;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.util.RayTraceResult;
+import org.bukkit.util.Vector;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 
@@ -107,7 +108,6 @@ import net.citizensnpcs.api.util.DataKey;
 import net.citizensnpcs.api.util.EntityDim;
 import net.citizensnpcs.api.util.MemoryDataKey;
 import net.citizensnpcs.api.util.Messaging;
-import net.citizensnpcs.api.util.OldEnumCompat.VillagerProfessionEnum;
 import net.citizensnpcs.api.util.Paginator;
 import net.citizensnpcs.api.util.Placeholders;
 import net.citizensnpcs.api.util.SpigotUtil;
@@ -122,6 +122,7 @@ import net.citizensnpcs.trait.Age;
 import net.citizensnpcs.trait.Anchors;
 import net.citizensnpcs.trait.ArmorStandTrait;
 import net.citizensnpcs.trait.AttributeTrait;
+import net.citizensnpcs.trait.BatTrait;
 import net.citizensnpcs.trait.BoatTrait;
 import net.citizensnpcs.trait.BoundingBoxTrait;
 import net.citizensnpcs.trait.ClickRedirectTrait;
@@ -166,7 +167,6 @@ import net.citizensnpcs.trait.SkinLayers;
 import net.citizensnpcs.trait.SkinLayers.Layer;
 import net.citizensnpcs.trait.SkinTrait;
 import net.citizensnpcs.trait.SlimeSize;
-import net.citizensnpcs.trait.VillagerProfession;
 import net.citizensnpcs.trait.WitherTrait;
 import net.citizensnpcs.trait.WolfModifiers;
 import net.citizensnpcs.trait.shop.StoredShops;
@@ -434,6 +434,23 @@ public class NPCCommands {
 
     @Command(
             aliases = { "npc" },
+            usage = "bat --awake [awake]",
+            desc = "",
+            modifiers = { "bat" },
+            min = 1,
+            max = 1,
+            permission = "citizens.npc.bat")
+    @Requirements(selected = true, ownership = true, types = EntityType.BAT)
+    public void bat(CommandContext args, CommandSender sender, NPC npc, @Flag("awake") Boolean awake)
+            throws CommandException {
+        if (awake == null)
+            throw new CommandException();
+        npc.getOrAddTrait(BatTrait.class).setAwake(awake);
+        Messaging.sendTr(sender, awake ? Messages.BAT_AWAKE_SET : Messages.BAT_AWAKE_UNSET, npc.getName());
+    }
+
+    @Command(
+            aliases = { "npc" },
             usage = "boat --type [type]",
             desc = "",
             modifiers = { "boat" },
@@ -472,7 +489,9 @@ public class NPCCommands {
             cfg.blockBreaker((block, itemstack) -> {
                 org.bukkit.inventory.Inventory inventory = ((InventoryHolder) npc.getEntity()).getInventory();
                 Location location = npc.getEntity().getLocation();
-                for (ItemStack drop : block.getDrops(itemstack)) {
+                Collection<ItemStack> drops = block.getDrops(itemstack);
+                block.setType(Material.AIR);
+                for (ItemStack drop : drops) {
                     for (ItemStack unadded : inventory.addItem(drop).values()) {
                         location.getWorld().dropItemNaturally(npc.getEntity().getLocation(), unadded);
                     }
@@ -887,9 +906,6 @@ public class NPCCommands {
         if (args.hasFlag('c')) {
             spawnLoc = Util.getCenterLocation(spawnLoc.getBlock());
         }
-        if (!args.hasFlag('u')) {
-            npc.spawn(spawnLoc, SpawnReason.CREATE);
-        }
         if (traits != null) {
             Iterable<String> parts = Splitter.on(',').trimResults().split(traits);
             StringBuilder builder = new StringBuilder();
@@ -911,9 +927,7 @@ public class NPCCommands {
             StringBuilder builder = new StringBuilder();
             for (String part : parts) {
                 if (part.contains(":")) {
-                    int idx = part.indexOf(':');
-                    Template template = templateRegistry.getTemplateByKey(new NamespacedKey(part.substring(0, idx),
-                            part.substring(idx + 1).toLowerCase(Locale.ROOT)));
+                    Template template = templateRegistry.getTemplateByKey(SpigotUtil.getKey(part));
                     if (template == null)
                         continue;
                     template.apply(npc);
@@ -930,6 +944,9 @@ public class NPCCommands {
                 builder.delete(builder.length() - 2, builder.length());
             }
             msg += " with templates " + builder.toString();
+        }
+        if (!args.hasFlag('u')) {
+            npc.spawn(spawnLoc, SpawnReason.CREATE);
         }
         selector.select(sender, npc);
         history.add(sender, new CreateNPCHistoryItem(npc));
@@ -1147,14 +1164,15 @@ public class NPCCommands {
 
     @Command(
             aliases = { "npc" },
-            usage = "forcefield --width [width] --height [height] --strength [strength]",
+            usage = "forcefield --width [width] --height [height] --strength [strength] --vertical_strength [vertical strength]",
             desc = "",
             modifiers = { "forcefield" },
             min = 1,
             max = 1,
             permission = "citizens.npc.forcefield")
     public void forcefield(CommandContext args, CommandSender sender, NPC npc, @Flag("width") Double width,
-            @Flag("height") Double height, @Flag("strength") Double strength) throws CommandException {
+            @Flag("height") Double height, @Flag("strength") Double strength,
+            @Flag("vertical_strength") Double verticalStrength) throws CommandException {
         ForcefieldTrait trait = npc.getOrAddTrait(ForcefieldTrait.class);
         String output = "";
         if (width != null) {
@@ -1168,6 +1186,10 @@ public class NPCCommands {
         if (strength != null) {
             trait.setStrength(strength);
             output += Messaging.tr(Messages.FORCEFIELD_STRENGTH_SET, strength);
+        }
+        if (verticalStrength != null) {
+            trait.setVerticalStrength(verticalStrength);
+            output += Messaging.tr(Messages.FORCEFIELD_VERTICAL_STRENGTH_SET, verticalStrength);
         }
         if (!output.isEmpty()) {
             Messaging.send(sender, output);
@@ -1501,13 +1523,16 @@ public class NPCCommands {
 
     @Command(
             aliases = { "npc" },
-            usage = "inventory",
+            usage = "inventory (player name/uuid)",
             desc = "",
             modifiers = { "inventory" },
             min = 1,
-            max = 1,
+            max = 2,
             permission = "citizens.npc.inventory")
-    public void inventory(CommandContext args, CommandSender sender, NPC npc) {
+    public void inventory(CommandContext args, CommandSender sender, NPC npc, @Arg(1) Player player) {
+        if (player != null) {
+            sender = player;
+        }
         npc.getOrAddTrait(Inventory.class).openInventory((Player) sender);
     }
 
@@ -1948,7 +1973,7 @@ public class NPCCommands {
                 throw new CommandException(Messaging.tr(Messages.MOUNT_NPC_MUST_BE_SPAWNED, onnpc));
 
             if (mount.equals(npc))
-                throw new CommandException(Messages.TRIED_TO_MOUNT_NPC_ON_ITSELF);
+                throw new CommandException(Messages.MOUNT_TRIED_TO_MOUNT_NPC_ON_ITSELF);
 
             NMS.mount(mount.getEntity(), npc.getEntity());
             return;
@@ -2546,29 +2571,6 @@ public class NPCCommands {
 
     @Command(
             aliases = { "npc" },
-            usage = "profession|prof [profession]",
-            desc = "",
-            modifiers = { "profession", "prof" },
-            min = 2,
-            max = 2,
-            permission = "citizens.npc.profession")
-    @Requirements(selected = true, ownership = true)
-    public void profession(CommandContext args, CommandSender sender, NPC npc, @Arg(1) Profession parsed)
-            throws CommandException {
-        EntityType type = npc.getOrAddTrait(MobType.class).getType();
-        if (type != EntityType.VILLAGER && !type.name().equals("ZOMBIE_VILLAGER"))
-            throw new CommandException(CommandMessages.REQUIREMENTS_INVALID_MOB_TYPE, Util.prettyEnum(type));
-
-        if (parsed == null)
-            throw new CommandException(Messages.INVALID_PROFESSION, args.getString(1),
-                    Util.listValuesPretty(VillagerProfessionEnum.values()));
-
-        npc.getOrAddTrait(VillagerProfession.class).setProfession(parsed);
-        Messaging.sendTr(sender, Messages.PROFESSION_SET, npc.getName(), parsed);
-    }
-
-    @Command(
-            aliases = { "npc" },
             usage = "rabbittype [type]",
             desc = "",
             modifiers = { "rabbittype", "rbtype" },
@@ -2775,7 +2777,7 @@ public class NPCCommands {
             permission = "citizens.npc.select")
     @Requirements
     public void select(CommandContext args, CommandSender sender, NPC npc,
-            @Flag(value = "range", defValue = "10") double range, @Flag("registry") String registryName)
+            @Flag(value = "range", defValue = "15") double range, @Flag("registry") String registryName)
             throws CommandException {
         NPCCommandSelector.Callback callback = toSelect -> {
             if (toSelect == null)
@@ -2795,9 +2797,22 @@ public class NPCCommands {
             if (args.getSenderLocation() == null)
                 throw new ServerCommandException();
             Location location = args.getSenderLocation();
+            if (SUPPORT_RAYTRACE && sender instanceof Player) {
+                Location eyeLoc = ((Player) sender).getEyeLocation();
+                RayTraceResult res = eyeLoc.getWorld().rayTraceEntities(eyeLoc, eyeLoc.getDirection(), range, 0.1,
+                        e -> !e.equals(sender));
+                if (res != null && registry.isNPC(res.getHitEntity())) {
+                    NPC hit = registry.getNPC(res.getHitEntity());
+                    if (hit.hasTrait(ClickRedirectTrait.class)) {
+                        hit = hit.getTraitNullable(ClickRedirectTrait.class).getRedirectNPC();
+                    }
+                    callback.run(hit);
+                    return;
+                }
+            }
             List<NPC> search = location.getWorld().getNearbyEntities(location, range, range, range).stream()
-                    .map(e -> registry.getNPC(e)).filter(e -> e != null).collect(Collectors.toList());
-            Collections.sort(search, (o1, o2) -> Double.compare(o1.getEntity().getLocation().distanceSquared(location),
+                    .map(registry::getNPC).filter(Objects::nonNull).collect(Collectors.toList());
+            search.sort((o1, o2) -> Double.compare(o1.getEntity().getLocation().distanceSquared(location),
                     o2.getEntity().getLocation().distanceSquared(location)));
             for (NPC test : search) {
                 if (test.hasTrait(ClickRedirectTrait.class)) {
@@ -2865,11 +2880,11 @@ public class NPCCommands {
 
     @Command(
             aliases = { "npc" },
-            usage = "shop (edit|show|delete|copyfrom) (name)",
+            usage = "shop (edit|show|delete|copyfrom) (name) (new_name)",
             desc = "",
             modifiers = { "shop" },
             min = 1,
-            max = 3,
+            max = 4,
             permission = "citizens.npc.shop")
     @Requirements(selected = false, ownership = true)
     public void shop(CommandContext args, Player sender, NPC npc,
@@ -2882,7 +2897,7 @@ public class NPCCommands {
             return;
         }
         NPCShop shop = npc != null ? npc.getOrAddTrait(ShopTrait.class).getDefaultShop() : null;
-        if (args.argsLength() == 3) {
+        if (args.argsLength() >= 3) {
             shop = shops.getShop(args.getString(2));
         }
         if (shop == null)
@@ -2900,11 +2915,17 @@ public class NPCCommands {
         } else if (action.equalsIgnoreCase("copyfrom")) {
             if (!shop.canEdit(npc, sender) || !npc.getOrAddTrait(ShopTrait.class).getDefaultShop().canEdit(npc, sender))
                 throw new NoPermissionsException();
-            DataKey key = new MemoryDataKey();
+            String newName = args.argsLength() == 4 ? args.getString(3) : UUID.randomUUID().toString();
+            DataKey key = new MemoryDataKey().getRelative(newName);
             PersistenceLoader.save(shop, key);
             NPCShop copy = PersistenceLoader.load(NPCShop.class, key);
             npc.getOrAddTrait(ShopTrait.class).setDefaultShop(copy);
         } else if (action.equalsIgnoreCase("show")) {
+            if (args.argsLength() == 4) {
+                sender = Bukkit.getPlayer(args.getString(3));
+                if (sender == null)
+                    throw new CommandException(Messages.SHOP_PLAYER_NOT_FOUND, args.getString(3));
+            }
             shop.display(sender);
         } else
             throw new CommandUsageException();
@@ -2937,12 +2958,12 @@ public class NPCCommands {
 
     @Command(
             aliases = { "npc" },
-            usage = "skin (-e(xport) -c(lear) -l(atest) -s(kull)) [name] (or --url [url] --file [file] (-s(lim)) or -t [uuid/name] [data] [signature])",
+            usage = "skin (-e(xport) -c(lear) -l(atest) -s(kull) -b(edrock)) [name] (or --url [url] --file [file] (-s(lim)) or -t [uuid/name] [data] [signature])",
             desc = "",
             modifiers = { "skin" },
             min = 1,
             max = 4,
-            flags = "ectls",
+            flags = "bectls",
             permission = "citizens.npc.skin")
     @Requirements(types = EntityType.PLAYER, selected = true, ownership = true)
     public void skin(CommandContext args, CommandSender sender, NPC npc, @Flag("url") String url,
@@ -3044,14 +3065,21 @@ public class NPCCommands {
                 throw new ServerCommandException();
             return;
         } else {
+            if (args.hasFlag('l')) {
+                trait.setShouldUpdateSkins(!trait.shouldUpdateSkins());
+                Messaging.sendTr(sender, Messages.SKIN_LATEST_SET, npc.getName(),
+                        skinName != null ? skinName : trait.getSkinName());
+                if (args.argsLength() != 2)
+                    return;
+            }
             if (args.argsLength() != 2) {
                 Messaging.send(sender, trait.getSkinName());
                 return;
             }
-            if (args.hasFlag('l')) {
-                trait.setShouldUpdateSkins(true);
-            }
             skinName = args.getString(1);
+        }
+        if (args.hasFlag('b')) {
+            skinName = Util.possiblyConvertToBedrockName(skinName);
         }
         Messaging.sendTr(sender, Messages.SKIN_SET, npc.getName(), skinName);
         trait.setSkinName(skinName, true);
@@ -3318,21 +3346,16 @@ public class NPCCommands {
             min = 1,
             max = 2,
             permission = "citizens.npc.target")
-    public void target(CommandContext args, CommandSender sender, NPC npc) throws CommandUsageException {
+    public void target(CommandContext args, CommandSender sender, NPC npc, @Arg(1) Player player)
+            throws CommandUsageException {
         if (args.hasFlag('c')) {
             npc.getNavigator().cancelNavigation();
             return;
         }
-        Entity toTarget = args.argsLength() < 2 && sender instanceof Player ? (Player) sender
-                : Bukkit.getPlayer(args.getString(1));
-        if (toTarget == null && args.argsLength() == 2) {
-            toTarget = Bukkit.getEntity(UUID.fromString(args.getString(1)));
-        }
-        if (toTarget != null) {
-            npc.getNavigator().setTarget(toTarget, args.hasFlag('a'));
-        } else {
+        Entity toTarget = player != null ? player : sender instanceof Player ? (Player) sender : null;
+        if (toTarget == null)
             throw new CommandUsageException();
-        }
+        npc.getNavigator().setTarget(toTarget, args.hasFlag('a'));
     }
 
     @Command(
@@ -3485,7 +3508,7 @@ public class NPCCommands {
         if (from == null)
             throw new CommandException(Messages.FROM_ENTITY_NOT_FOUND);
         if (to == null)
-            throw new CommandException(Messages.TO_ENTITY_NOT_FOUND);
+            throw new CommandException(Messages.TPTO_ENTITY_NOT_FOUND);
         from.teleport(to);
         Messaging.sendTr(sender, Messages.TPTO_SUCCESS);
     }
@@ -3701,6 +3724,16 @@ public class NPCCommands {
         @Override
         public String getEnumClassName() {
             return "org.bukkit.entity.Boat.Type";
+        }
+    }
+
+    private static boolean SUPPORT_RAYTRACE = false;
+
+    static {
+        try {
+            SUPPORT_RAYTRACE = World.class.getMethod("rayTraceEntities", Location.class, Vector.class,
+                    double.class) != null;
+        } catch (Exception e) {
         }
     }
 }

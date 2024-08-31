@@ -720,7 +720,7 @@ public class NMSImpl implements NMSBridge {
 
     @Override
     public float getRidingHeightOffset(org.bukkit.entity.Entity entity, org.bukkit.entity.Entity mount) {
-        return (float) (getHandle(mount).getPassengersRidingOffset() - 0.5D);
+        return (float) getHandle(mount).getPassengersRidingOffset();
     }
 
     @Override
@@ -932,22 +932,6 @@ public class NMSImpl implements NMSBridge {
     public boolean isValid(org.bukkit.entity.Entity entity) {
         Entity handle = getHandle(entity);
         return handle.valid && handle.isAlive();
-    }
-
-    @Override
-    public void linkTextInteraction(org.bukkit.entity.Player player, org.bukkit.entity.Entity entity,
-            org.bukkit.entity.Entity mount, double offset) {
-        offset += -0.9 + getHandle(mount).getPassengersRidingOffset();
-        sendPacket(player,
-                new ClientboundBundlePacket(List.of(
-                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
-                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_WIDTH, 0f).value(),
-                                        new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, (float) offset).value(),
-                                        new SynchedEntityData.DataItem<>(DATA_POSE, Pose.CROAKING).value(),
-                                        new SynchedEntityData.DataItem<>(DATA_NAME_VISIBLE, true).value())),
-                        new ClientboundSetPassengersPacket(getHandle(mount)),
-                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
-                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, 999999f).value())))));
     }
 
     @Override
@@ -1187,6 +1171,11 @@ public class NMSImpl implements NMSBridge {
     }
 
     @Override
+    public void markPoseDirty(org.bukkit.entity.Entity entity) {
+        getHandle(entity).getEntityData().markDirty(DATA_POSE);
+    }
+
+    @Override
     public void mount(org.bukkit.entity.Entity entity, org.bukkit.entity.Entity passenger) {
         if (getHandle(passenger) == null)
             return;
@@ -1223,7 +1212,8 @@ public class NMSImpl implements NMSBridge {
             if (trait.mirrorName()) {
                 list.set(i,
                         new ClientboundPlayerInfoUpdatePacket.Entry(npcInfo.profileId(), playerProfile, !disableTablist,
-                                npcInfo.latency(), npcInfo.gameMode(), Component.literal(playerProfile.getName()),
+                                npcInfo.latency(), npcInfo.gameMode(), Component.literal(Util
+                                        .possiblyStripBedrockPrefix(playerProfile.getName(), playerProfile.getId())),
                                 npcInfo.chatSession()));
                 changed = true;
                 continue;
@@ -1311,6 +1301,22 @@ public class NMSImpl implements NMSBridge {
                 return;
             player.doTick();
         };
+    }
+
+    @Override
+    public void positionInteractionText(org.bukkit.entity.Player player, org.bukkit.entity.Entity entity,
+            org.bukkit.entity.Entity mount, double offset) {
+        offset += getRidingHeightOffset(entity, mount) + 0.5;
+        sendPacket(player,
+                new ClientboundBundlePacket(List.of(
+                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
+                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_WIDTH, 0f).value(),
+                                        new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, (float) offset).value(),
+                                        new SynchedEntityData.DataItem<>(DATA_POSE, Pose.CROAKING).value(),
+                                        new SynchedEntityData.DataItem<>(DATA_NAME_VISIBLE, true).value())),
+                        new ClientboundSetPassengersPacket(getHandle(mount)),
+                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
+                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, 999999f).value())))));
     }
 
     @Override
@@ -1413,8 +1419,8 @@ public class NMSImpl implements NMSBridge {
     public void sendTabListRemove(Player recipient, Collection<Player> skinnableNPCs) {
         Preconditions.checkNotNull(recipient);
         Preconditions.checkNotNull(skinnableNPCs);
-        sendPacket(recipient, new ClientboundPlayerInfoRemovePacket(
-                skinnableNPCs.stream().map((Function<? super Player, ? extends UUID>) Player::getUniqueId).collect(Collectors.toList())));
+        sendPacket(recipient, new ClientboundPlayerInfoRemovePacket(skinnableNPCs.stream()
+                .map((Function<? super Player, ? extends UUID>) Player::getUniqueId).collect(Collectors.toList())));
     }
 
     @Override
@@ -2294,9 +2300,10 @@ public class NMSImpl implements NMSBridge {
     }
 
     public static SoundEvent getSoundEffect(NPC npc, SoundEvent snd, NPC.Metadata meta) {
-        return npc == null || !npc.data().has(meta) ? snd
-                : BuiltInRegistries.SOUND_EVENT
-                        .get(new ResourceLocation(npc.data().get(meta, snd == null ? "" : snd.toString())));
+        if (npc == null)
+            return snd;
+        String data = npc.data().get(meta);
+        return data == null ? snd : BuiltInRegistries.SOUND_EVENT.get(ResourceLocation.tryParse(data));
     }
 
     public static void initNetworkManager(Connection network) {
@@ -2607,7 +2614,6 @@ public class NMSImpl implements NMSBridge {
     private static final MethodHandle NAVIGATION_PATHFINDER = NMS.getFirstFinalSetter(PathNavigation.class,
             PathFinder.class);
     private static final MethodHandle NAVIGATION_WORLD_FIELD = NMS.getFirstSetter(PathNavigation.class, Level.class);
-    private static final Location PACKET_CACHE_LOCATION = new Location(null, 0, 0, 0);
     private static final MethodHandle PLAYER_CHUNK_MAP_VIEW_DISTANCE_GETTER = NMS.getFirstGetter(ChunkMap.class,
             int.class);
     private static final MethodHandle PLAYER_CHUNK_MAP_VIEW_DISTANCE_SETTER = NMS.getFirstSetter(ChunkMap.class,

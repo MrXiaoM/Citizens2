@@ -189,7 +189,7 @@ public class EntityNavigation extends PathNavigation {
 
     @Override
     protected Path createPath(Set<BlockPos> var0, int var1, boolean var2, int reachRange) {
-        return createPath(var0, var1, var2, reachRange, (float) this.mob.getAttributeValue(Attributes.FOLLOW_RANGE));
+        return createPath(var0, var1, var2, reachRange, (float) this.followRange.getValue());
     }
 
     @Override
@@ -325,7 +325,7 @@ public class EntityNavigation extends PathNavigation {
     }
 
     protected boolean hasValidPathType(PathType var0) {
-        if ((var0 == PathType.WATER) || (var0 == PathType.LAVA))
+        if (var0 == PathType.WATER || var0 == PathType.LAVA)
             return false;
         else
             return var0 != PathType.OPEN;

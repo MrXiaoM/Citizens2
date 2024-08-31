@@ -97,7 +97,6 @@ import net.citizensnpcs.nms.v1_17_R1.entity.DrownedController;
 import net.citizensnpcs.nms.v1_17_R1.entity.EnderDragonController;
 import net.citizensnpcs.nms.v1_17_R1.entity.EndermanController;
 import net.citizensnpcs.nms.v1_17_R1.entity.EndermiteController;
-import net.citizensnpcs.nms.v1_17_R1.entity.EntityHumanNPC;
 import net.citizensnpcs.nms.v1_17_R1.entity.EvokerController;
 import net.citizensnpcs.nms.v1_17_R1.entity.FoxController;
 import net.citizensnpcs.nms.v1_17_R1.entity.GhastController;
@@ -372,8 +371,8 @@ public class NMSImpl implements NMSBridge {
             return;
 
         try {
-            CHUNKMAP_UPDATE_PLAYER_STATUS.invoke(
-                    ((ServerChunkCache) ((ServerLevel) handle.level).getChunkSource()).chunkMap, handle, !remove);
+            CHUNKMAP_UPDATE_PLAYER_STATUS.invoke(((ServerChunkCache) handle.level.getChunkSource()).chunkMap, handle,
+                    !remove);
         } catch (Throwable e) {
             e.printStackTrace();
         }
@@ -1098,6 +1097,11 @@ public class NMSImpl implements NMSBridge {
     }
 
     @Override
+    public void markPoseDirty(org.bukkit.entity.Entity entity) {
+        getHandle(entity).getEntityData().markDirty(DATA_POSE);
+    }
+
+    @Override
     public void mount(org.bukkit.entity.Entity entity, org.bukkit.entity.Entity passenger) {
         if (NMSImpl.getHandle(passenger) == null)
             return;
@@ -1233,9 +1237,6 @@ public class NMSImpl implements NMSBridge {
         entry.broadcastRemoved();
         PlayerlistTracker replace = new PlayerlistTracker(server.getChunkProvider().chunkMap, entry);
         server.getChunkProvider().chunkMap.G.put(entity.getEntityId(), replace);
-        if (getHandle(entity) instanceof EntityHumanNPC) {
-            ((EntityHumanNPC) getHandle(entity)).setTracked(replace);
-        }
     }
 
     @Override
@@ -2059,9 +2060,10 @@ public class NMSImpl implements NMSBridge {
     }
 
     public static SoundEvent getSoundEffect(NPC npc, SoundEvent snd, NPC.Metadata meta) {
-        return npc == null || !npc.data().has(meta) ? snd
-                : Registry.SOUND_EVENT
-                        .get(new ResourceLocation(npc.data().get(meta, snd == null ? "" : snd.toString())));
+        if (npc == null)
+            return snd;
+        String data = npc.data().get(meta);
+        return data == null ? snd : Registry.SOUND_EVENT.get(ResourceLocation.tryParse(data));
     }
 
     public static void initNetworkManager(Connection network) {
@@ -2297,6 +2299,7 @@ public class NMSImpl implements NMSBridge {
     private static final Map<Class<?>, net.minecraft.world.entity.EntityType<?>> CITIZENS_ENTITY_TYPES = Maps
             .newHashMap();
     private static final MethodHandle CRAFT_BOSSBAR_HANDLE_FIELD = NMS.getSetter(CraftBossBar.class, "handle");
+    private static EntityDataAccessor<Pose> DATA_POSE = null;
     private static final float DEFAULT_SPEED = 1F;
     public static MethodHandle ENDERDRAGON_CHECK_WALLS = NMS.getFirstMethodHandleWithReturnType(EnderDragon.class, true,
             boolean.class, AABB.class);
@@ -2358,6 +2361,7 @@ public class NMSImpl implements NMSBridge {
         try {
             RABBIT_TYPE_DATAWATCHER = (EntityDataAccessor<Integer>) NMS
                     .getFirstStaticGetter(Rabbit.class, EntityDataAccessor.class).invoke();
+            DATA_POSE = (EntityDataAccessor<Pose>) NMS.getGetter(Entity.class, "ad").invoke();
         } catch (Throwable e) {
             e.printStackTrace();
         }

@@ -58,7 +58,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public class EntityHumanNPC extends ServerPlayer implements NPCHolder, SkinnableEntity, ForwardingMobAI {
-    private MobAI ai;
+    private final MobAI ai;
     private int jumpTicks = 0;
     private final CitizensNPC npc;
     private boolean setBukkitEntity;
@@ -73,14 +73,20 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
             ai = new BasicMobAI(this);
             skinTracker = new SkinPacketTracker(this);
             try {
-                GAMEMODE_SETTING.invoke(gameMode, GameType.SURVIVAL, null);
+                GAMEMODE_SETTER.invoke(gameMode, GameType.SURVIVAL, null);
             } catch (Throwable e) {
                 e.printStackTrace();
             }
             initialise(minecraftServer, ci);
         } else {
+            ai = null;
             skinTracker = null;
         }
+    }
+
+    @Override
+    public boolean broadcastToPlayer(ServerPlayer player) {
+        return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
     }
 
     @Override
@@ -136,7 +142,6 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
             moveOnCurrentHeading();
         }
         tickAI();
-        detectEquipmentUpdatesPublic();
         noPhysics = isSpectator();
         if (isSpectator()) {
             onGround = false;
@@ -354,6 +359,12 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
         if (npc == null)
             return;
 
+        detectEquipmentUpdatesPublic();
+        float scale = this.getScale();
+        if (scale != this.appliedScale) {
+            appliedScale = scale;
+            refreshDimensions();
+        }
         Bukkit.getServer().getPluginManager().unsubscribeFromPermission("bukkit.broadcast.user", getBukkitEntity());
         updatePackets(npc.getNavigator().isNavigating());
         npc.update();
@@ -474,6 +485,6 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
     }
 
     private static final float EPSILON = 0.003F;
-    private static final MethodHandle GAMEMODE_SETTING = NMS.getFirstMethodHandle(ServerPlayerGameMode.class, true,
+    private static final MethodHandle GAMEMODE_SETTER = NMS.getFirstMethodHandle(ServerPlayerGameMode.class, true,
             GameType.class, GameType.class);
 }

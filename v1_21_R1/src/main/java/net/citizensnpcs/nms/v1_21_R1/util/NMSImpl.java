@@ -1,6 +1,7 @@
 package net.citizensnpcs.nms.v1_21_R1.util;
 
 import java.lang.invoke.MethodHandle;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -36,7 +37,7 @@ import org.bukkit.craftbukkit.v1_21_R1.entity.CraftEntity;
 import org.bukkit.craftbukkit.v1_21_R1.entity.CraftPlayer;
 import org.bukkit.craftbukkit.v1_21_R1.event.CraftEventFactory;
 import org.bukkit.craftbukkit.v1_21_R1.inventory.CraftInventoryAnvil;
-import org.bukkit.craftbukkit.v1_21_R1.inventory.CraftInventoryView;
+import org.bukkit.craftbukkit.v1_21_R1.inventory.view.CraftAnvilView;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.FishHook;
 import org.bukkit.entity.Player;
@@ -58,8 +59,13 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.GameProfileRepository;
+import com.mojang.authlib.HttpAuthenticationService;
 import com.mojang.authlib.minecraft.MinecraftSessionService;
+import com.mojang.authlib.minecraft.client.MinecraftClient;
 import com.mojang.authlib.properties.Property;
+import com.mojang.authlib.yggdrasil.YggdrasilMinecraftSessionService;
+import com.mojang.authlib.yggdrasil.response.MinecraftProfilePropertiesResponse;
+import com.mojang.util.UndashedUuid;
 
 import net.citizensnpcs.Settings.Setting;
 import net.citizensnpcs.api.CitizensAPI;
@@ -446,9 +452,10 @@ public class NMSImpl implements NMSBridge {
 
     @Override
     public void cancelMoveDestination(org.bukkit.entity.Entity entity) {
-        Entity handle = getHandle(entity);
-        MobAI ai = MobAI.from(handle);
-        MoveControl control = ai != null ? ai.getMoveControl() : null;
+        MobAI ai = MobAI.from(getHandle(entity));
+        if (ai == null)
+            return;
+        MoveControl control = ai.getMoveControl();
         if (control instanceof EntityMoveControl) {
             ((EntityMoveControl) control).moving = false;
         } else {
@@ -535,7 +542,15 @@ public class NMSImpl implements NMSBridge {
         if (Bukkit.isPrimaryThread())
             throw new IllegalStateException("NMS.fillProfileProperties cannot be invoked from the main thread.");
         MinecraftSessionService sessionService = ((CraftServer) Bukkit.getServer()).getServer().getSessionService();
-        return sessionService.fetchProfile(profile.getId(), requireSecure).profile();
+        if (!(sessionService instanceof YggdrasilMinecraftSessionService))
+            return sessionService.fetchProfile(profile.getId(), requireSecure).profile();
+        URL url = HttpAuthenticationService
+                .constantURL(getAuthServerBaseUrl() + UndashedUuid.toString(profile.getId()));
+        url = HttpAuthenticationService.concatenateURL(url, "unsigned=" + !requireSecure);
+        MinecraftClient client = (MinecraftClient) MINECRAFT_CLIENT.invoke(sessionService);
+        MinecraftProfilePropertiesResponse response = client.get(url, MinecraftProfilePropertiesResponse.class);
+
+        return response.toProfile();
     }
 
     public String getAuthServerBaseUrl() {
@@ -891,22 +906,6 @@ public class NMSImpl implements NMSBridge {
     }
 
     @Override
-    public void linkTextInteraction(org.bukkit.entity.Player player, org.bukkit.entity.Entity entity,
-            org.bukkit.entity.Entity mount, double offset) {
-        offset += getRidingHeightOffset(entity, mount);
-        sendPacket(player,
-                new ClientboundBundlePacket(List.of(
-                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
-                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_WIDTH, 0f).value(),
-                                        new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, (float) offset).value(),
-                                        new SynchedEntityData.DataItem<>(DATA_POSE, Pose.CROAKING).value(),
-                                        new SynchedEntityData.DataItem<>(DATA_NAME_VISIBLE, true).value())),
-                        new ClientboundSetPassengersPacket(getHandle(mount)),
-                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
-                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, 999999f).value())))));
-    }
-
-    @Override
     public void load(CommandManager manager) {
         registerTraitWithCommand(manager, EnderDragonTrait.class);
         registerTraitWithCommand(manager, AllayTrait.class);
@@ -1152,6 +1151,11 @@ public class NMSImpl implements NMSBridge {
     }
 
     @Override
+    public void markPoseDirty(org.bukkit.entity.Entity entity) {
+        getHandle(entity).getEntityData().markDirty(DATA_POSE);
+    }
+
+    @Override
     public void mount(org.bukkit.entity.Entity entity, org.bukkit.entity.Entity passenger) {
         if (getHandle(passenger) == null)
             return;
@@ -1188,7 +1192,8 @@ public class NMSImpl implements NMSBridge {
             if (trait.mirrorName()) {
                 list.set(i,
                         new ClientboundPlayerInfoUpdatePacket.Entry(npcInfo.profileId(), playerProfile, !disableTablist,
-                                npcInfo.latency(), npcInfo.gameMode(), Component.literal(playerProfile.getName()),
+                                npcInfo.latency(), npcInfo.gameMode(), Component.literal(Util
+                                        .possiblyStripBedrockPrefix(playerProfile.getName(), playerProfile.getId())),
                                 npcInfo.chatSession()));
                 changed = true;
                 continue;
@@ -1215,31 +1220,8 @@ public class NMSImpl implements NMSBridge {
     @Override
     public InventoryView openAnvilInventory(Player player, Inventory anvil, String title) {
         ServerPlayer handle = (ServerPlayer) getHandle(player);
-        final AnvilMenu container = new AnvilMenu(handle.nextContainerCounter(), handle.getInventory(),
-                ContainerLevelAccess.create(handle.level(), new BlockPos(0, 0, 0))) {
-            private CraftInventoryView bukkitEntity;
-
-            @Override
-            protected void clearContainer(net.minecraft.world.entity.player.Player entityhuman, Container iinventory) {
-            }
-
-            @Override
-            public void createResult() {
-                super.createResult();
-                cost.set(0);
-            }
-
-            @Override
-            public CraftInventoryView getBukkitView() {
-                if (this.bukkitEntity == null) {
-                    this.bukkitEntity = new CraftInventoryView(this.player.getBukkitEntity(),
-                            new CitizensInventoryAnvil(this.access.getLocation(), this.inputSlots, this.resultSlots,
-                                    this, anvil),
-                            this);
-                }
-                return this.bukkitEntity;
-            }
-        };
+        CitizensAnvilMenu container = new CitizensAnvilMenu(handle.nextContainerCounter(), handle.getInventory(),
+                ContainerLevelAccess.create(handle.level(), new BlockPos(0, 0, 0)), anvil);
         container.setTitle(MutableComponent.create(new LiteralContents(title == null ? "" : title)));
         container.getBukkitView().setItem(0, anvil.getItem(0));
         container.getBukkitView().setItem(1, anvil.getItem(1));
@@ -1276,6 +1258,22 @@ public class NMSImpl implements NMSBridge {
                 return;
             player.doTick();
         };
+    }
+
+    @Override
+    public void positionInteractionText(org.bukkit.entity.Player player, org.bukkit.entity.Entity entity,
+            org.bukkit.entity.Entity mount, double offset) {
+        offset += getRidingHeightOffset(entity, mount);
+        sendPacket(player,
+                new ClientboundBundlePacket(List.of(
+                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
+                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_WIDTH, 0f).value(),
+                                        new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, (float) offset).value(),
+                                        new SynchedEntityData.DataItem<>(DATA_POSE, Pose.CROAKING).value(),
+                                        new SynchedEntityData.DataItem<>(DATA_NAME_VISIBLE, true).value())),
+                        new ClientboundSetPassengersPacket(getHandle(mount)),
+                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
+                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, 999999f).value())))));
     }
 
     @Override
@@ -1921,12 +1919,42 @@ public class NMSImpl implements NMSBridge {
         }
     }
 
+    private final class CitizensAnvilMenu extends AnvilMenu {
+        private final Inventory anvil;
+        private CraftAnvilView bukkitEntity;
+
+        private CitizensAnvilMenu(int i, net.minecraft.world.entity.player.Inventory playerinventory,
+                ContainerLevelAccess containeraccess, Inventory anvil) {
+            super(i, playerinventory, containeraccess);
+            this.anvil = anvil;
+        }
+
+        @Override
+        protected void clearContainer(net.minecraft.world.entity.player.Player entityhuman, Container iinventory) {
+        }
+
+        @Override
+        public void createResult() {
+            super.createResult();
+            cost.set(0);
+        }
+
+        @Override
+        public CraftAnvilView getBukkitView() {
+            if (this.bukkitEntity == null) {
+                this.bukkitEntity = new CraftAnvilView(this.player.getBukkitEntity(), new CitizensInventoryAnvil(
+                        this.access.getLocation(), this.inputSlots, this.resultSlots, this, anvil), this);
+            }
+            return this.bukkitEntity;
+        }
+    }
+
     private static class CitizensInventoryAnvil extends CraftInventoryAnvil implements ForwardingInventory {
         private final Inventory wrapped;
 
         public CitizensInventoryAnvil(Location location, Container inventory, Container resultInventory,
                 AnvilMenu container, Inventory wrapped) {
-            super(location, inventory, resultInventory, container);
+            super(location, inventory, resultInventory);
             this.wrapped = wrapped;
         }
 
@@ -2282,9 +2310,10 @@ public class NMSImpl implements NMSBridge {
     }
 
     public static SoundEvent getSoundEffect(NPC npc, SoundEvent snd, NPC.Metadata meta) {
-        return npc == null || !npc.data().has(meta) ? snd
-                : BuiltInRegistries.SOUND_EVENT.get(
-                        ResourceLocation.withDefaultNamespace(npc.data().get(meta, snd == null ? "" : snd.toString())));
+        if (npc == null)
+            return snd;
+        String data = npc.data().get(meta);
+        return data == null ? snd : BuiltInRegistries.SOUND_EVENT.get(ResourceLocation.tryParse(data));
     }
 
     public static boolean isLeashed(NPC npc, Supplier<Boolean> isLeashed, Mob entity) {
@@ -2307,9 +2336,9 @@ public class NMSImpl implements NMSBridge {
     }
 
     public static boolean moveFish(NPC npc, Mob handle, Vec3 vec3d) {
-        if (npc == null)
+        if (npc == null || npc.useMinecraftAI())
             return false;
-        if (!npc.useMinecraftAI() && handle.isInWater() && !npc.getNavigator().isNavigating()) {
+        if (handle.isInWater() && !npc.getNavigator().isNavigating()) {
             handle.moveRelative(handle instanceof Dolphin || handle instanceof Axolotl ? handle.getSpeed()
                     : handle instanceof Turtle ? 0.1F : 0.01F, vec3d);
             handle.move(MoverType.SELF, handle.getDeltaMovement());
@@ -2528,9 +2557,7 @@ public class NMSImpl implements NMSBridge {
 
     private static final MethodHandle ADVANCEMENTS_PLAYER_SETTER = NMS.getFirstFinalSetter(ServerPlayer.class,
             PlayerAdvancements.class);
-
     private static final MethodHandle ARMADILLO_SCUTE_TIME = NMS.getSetter(Armadillo.class, "cn");
-
     private static final MethodHandle ATTRIBUTE_PROVIDER_MAP = NMS.getFirstGetter(AttributeSupplier.class, Map.class);
     private static final MethodHandle ATTRIBUTE_PROVIDER_MAP_SETTER = NMS.getFirstFinalSetter(AttributeSupplier.class,
             Map.class);
@@ -2578,6 +2605,8 @@ public class NMSImpl implements NMSBridge {
     private static EntityDataAccessor<Float> INTERACTION_WIDTH = null;
     private static final MethodHandle JUMP_FIELD = NMS.getGetter(LivingEntity.class, "bn");
     private static final MethodHandle LOOK_CONTROL_SETTER = NMS.getFirstSetter(Mob.class, LookControl.class);
+    private static final MethodHandle MINECRAFT_CLIENT = NMS.getFirstGetter(YggdrasilMinecraftSessionService.class,
+            MinecraftClient.class);
     private static final MethodHandle MOVE_CONTROLLER_OPERATION = NMS.getSetter(MoveControl.class, "k");
     private static final MethodHandle NAVIGATION_CREATE_PATHFINDER = NMS
             .getFirstMethodHandleWithReturnType(PathNavigation.class, true, PathFinder.class, int.class);
@@ -2585,7 +2614,6 @@ public class NMSImpl implements NMSBridge {
     private static final MethodHandle NAVIGATION_PATHFINDER = NMS.getFirstFinalSetter(PathNavigation.class,
             PathFinder.class);
     private static final MethodHandle NAVIGATION_WORLD_FIELD = NMS.getFirstSetter(PathNavigation.class, Level.class);
-
     private static final MethodHandle PLAYER_INFO_ENTRIES_LIST = NMS
             .getFirstFinalSetter(ClientboundPlayerInfoUpdatePacket.class, List.class);
     private static final MethodHandle PLAYERINFO_ENTRIES = PLAYER_INFO_ENTRIES_LIST;

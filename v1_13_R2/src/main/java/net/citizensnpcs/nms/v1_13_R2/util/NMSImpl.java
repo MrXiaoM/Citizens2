@@ -1159,9 +1159,6 @@ public class NMSImpl implements NMSBridge {
                 e.printStackTrace();
             }
         }
-        if (getHandle(entity) instanceof EntityHumanNPC) {
-            ((EntityHumanNPC) getHandle(entity)).setTracked(replace);
-        }
     }
 
     @Override
@@ -1242,7 +1239,7 @@ public class NMSImpl implements NMSBridge {
     @Override
     public void setBodyYaw(org.bukkit.entity.Entity entity, float yaw) {
         getHandle(entity).yaw = yaw;
-        if (entity instanceof EntityLiving) {
+        if (getHandle(entity) instanceof EntityLiving) {
             EntityLiving handle = (EntityLiving) getHandle(entity);
             handle.aR = yaw;
             if (!(handle instanceof EntityHuman)) {
@@ -1934,8 +1931,11 @@ public class NMSImpl implements NMSBridge {
     }
 
     public static SoundEffect getSoundEffect(NPC npc, SoundEffect snd, NPC.Metadata meta) {
-        return npc == null || !npc.data().has(meta) ? snd
-                : IRegistry.SOUND_EVENT.get(new MinecraftKey(npc.data().get(meta, snd == null ? "" : snd.toString())));
+        if (npc == null)
+            return snd;
+        String data = npc.data().get(meta);
+        return data == null ? snd
+                : IRegistry.SOUND_EVENT.get(data.contains(":") ? MinecraftKey.a(data) : new MinecraftKey(data));
     }
 
     public static void initNetworkManager(NetworkManager network) {

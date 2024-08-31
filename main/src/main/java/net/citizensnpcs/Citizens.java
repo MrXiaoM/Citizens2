@@ -73,8 +73,8 @@ import net.citizensnpcs.editor.Editor;
 import net.citizensnpcs.npc.CitizensNPCRegistry;
 import net.citizensnpcs.npc.CitizensTraitFactory;
 import net.citizensnpcs.npc.NPCSelector;
-import net.citizensnpcs.npc.profile.ProfileFetcher;
 import net.citizensnpcs.npc.skin.Skin;
+import net.citizensnpcs.npc.skin.profile.ProfileFetcher;
 import net.citizensnpcs.trait.ShopTrait;
 import net.citizensnpcs.trait.shop.StoredShops;
 import net.citizensnpcs.util.Messages;
@@ -91,7 +91,14 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
     private boolean enabled;
     private LocationLookup locationLookup;
     private final NMSHelper nmsHelper = new NMSHelper() {
-        private boolean SUPPORT_OWNER_PROFILE = true;
+        private boolean SUPPORT_OWNER_PROFILE = false;
+        {
+            try {
+                SkullMeta.class.getMethod("getOwnerProfile");
+                SUPPORT_OWNER_PROFILE = true;
+            } catch (Exception e) {
+            }
+        }
 
         @Override
         public OfflinePlayer getPlayer(BlockCommandSender sender) {
@@ -115,14 +122,8 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
             GameProfile profile = NMS.getProfile(meta);
             if (profile == null) {
                 if (SUPPORT_OWNER_PROFILE) {
-                    try {
-                        profile = new GameProfile(meta.getOwnerProfile().getUniqueId(),
-                                meta.getOwnerProfile().getName());
-                    } catch (Exception e) {
-                        SUPPORT_OWNER_PROFILE = false;
-                    }
-                }
-                if (profile == null) {
+                    profile = new GameProfile(meta.getOwnerProfile().getUniqueId(), meta.getOwnerProfile().getName());
+                } else {
                     profile = new GameProfile(UUID.randomUUID(), null);
                 }
             }
@@ -290,8 +291,8 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
         // Unfortunately, transitive dependency management is not supported in this library.
         lib.loadLibrary(
                 Library.builder().groupId("ch{}ethz{}globis{}phtree").artifactId("phtree").version("2.8.0").build());
-        lib.loadLibrary(Library.builder().groupId("net{}sf{}trove4j").artifactId("trove4j").version("3.0.3")
-                .relocate("gnu{}trove", "clib{}trove").build());
+        lib.loadLibrary(Library.builder().groupId("it{}unimi{}dsi").artifactId("fastutil").version("8.5.14")
+                .relocate("it{}unimi{}dsi", "clib{}fastutil").build());
         lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-text-minimessage")
                 .version("4.17.0").relocate("net{}kyori", "clib{}net{}kyori").build());
         lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-api").version("4.17.0")
@@ -326,6 +327,7 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
             lib.loadLibrary(Library.builder().groupId("org{}joml").artifactId("joml").version("1.10.5").build());
         }
         PhTreeHelper.enablePooling(false);
+        PhTreeHelper.MAX_OBJECT_POOL_SIZE = 0;
     }
 
     @Override
@@ -584,10 +586,8 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
                 try {
                     protocolListener = new ProtocolLibListener(Citizens.this);
                 } catch (Throwable t) {
-                    Messaging.severe("ProtocolLib support not enabled: enable debug to see error");
-                    if (Messaging.isDebugging()) {
-                        t.printStackTrace();
-                    }
+                    Messaging.severe("ProtocolLib support not enabled due to following error:");
+                    t.printStackTrace();
                 }
             }
             saves.loadInto(npcRegistry);

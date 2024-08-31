@@ -2,6 +2,7 @@ package net.citizensnpcs;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Objects;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -65,7 +66,6 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -222,7 +222,7 @@ public class EventListen implements Listener {
     }
 
     private Iterable<NPC> getAllNPCs() {
-        return Iterables.filter(Iterables.concat(CitizensAPI.getNPCRegistries()), Predicates.notNull());
+        return Iterables.filter(Iterables.concat(CitizensAPI.getNPCRegistries()), Objects::nonNull);
     }
 
     void loadNPCs(ChunkEvent event) {
@@ -465,6 +465,7 @@ public class EventListen implements Listener {
     @EventHandler(ignoreCancelled = true)
     public void onNPCLinkToPlayer(NPCLinkToPlayerEvent event) {
         NPC npc = event.getNPC();
+        NMS.markPoseDirty(npc.getEntity());
         if (npc.getEntity() instanceof SkinnableEntity) {
             SkinnableEntity skinnable = (SkinnableEntity) npc.getEntity();
             if (skinnable.getSkinTracker().getSkin() != null) {

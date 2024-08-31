@@ -12,6 +12,7 @@ import org.bukkit.scoreboard.Team;
 import org.bukkit.scoreboard.Team.Option;
 import org.bukkit.scoreboard.Team.OptionStatus;
 
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
 import net.citizensnpcs.Settings.Setting;
@@ -40,7 +41,7 @@ public class ScoreboardTrait extends Trait {
     public ScoreboardTrait() {
         super("scoreboardtrait");
         metadata = CitizensAPI.getLocationLookup().<Boolean> registerMetadata("scoreboard", (meta, event) -> {
-            for (NPC npc : CitizensAPI.getNPCRegistry()) {
+            for (NPC npc : Iterables.concat(CitizensAPI.getNPCRegistries())) {
                 ScoreboardTrait trait = npc.getTraitNullable(ScoreboardTrait.class);
                 if (trait == null)
                     continue;
@@ -146,7 +147,20 @@ public class ScoreboardTrait extends Trait {
         this.color = color;
     }
 
+    public void setTags(Set<String> tags) {
+        this.tags = tags;
+    }
+
     public void update() {
+        if (SUPPORT_TAGS) {
+            try {
+                if (!npc.getEntity().getScoreboardTags().equals(tags)) {
+                    tags = Sets.newHashSet(npc.getEntity().getScoreboardTags());
+                }
+            } catch (NoSuchMethodError e) {
+                SUPPORT_TAGS = false;
+            }
+        }
         String forceVisible = npc.data().<Object> get(NPC.Metadata.NAMEPLATE_VISIBLE, true).toString();
         boolean nameVisibility = !npc.requiresNameHologram()
                 && (forceVisible.equals("true") || forceVisible.equals("hover"));
@@ -167,15 +181,6 @@ public class ScoreboardTrait extends Trait {
             lastName = npc.getEntity() instanceof Player && npc.getEntity().getName() != null
                     ? npc.getEntity().getName()
                     : npc.getUniqueId().toString();
-        }
-        if (SUPPORT_TAGS) {
-            try {
-                if (!npc.getEntity().getScoreboardTags().equals(tags)) {
-                    tags = Sets.newHashSet(npc.getEntity().getScoreboardTags());
-                }
-            } catch (NoSuchMethodError e) {
-                SUPPORT_TAGS = false;
-            }
         }
         if (SUPPORT_TEAM_SETOPTION) {
             try {

@@ -1,6 +1,7 @@
 package net.citizensnpcs.nms.v1_20_R4.util;
 
 import java.lang.invoke.MethodHandle;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -58,8 +59,13 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.GameProfileRepository;
+import com.mojang.authlib.HttpAuthenticationService;
 import com.mojang.authlib.minecraft.MinecraftSessionService;
+import com.mojang.authlib.minecraft.client.MinecraftClient;
 import com.mojang.authlib.properties.Property;
+import com.mojang.authlib.yggdrasil.YggdrasilMinecraftSessionService;
+import com.mojang.authlib.yggdrasil.response.MinecraftProfilePropertiesResponse;
+import com.mojang.util.UndashedUuid;
 
 import net.citizensnpcs.Settings.Setting;
 import net.citizensnpcs.api.CitizensAPI;
@@ -556,7 +562,15 @@ public class NMSImpl implements NMSBridge {
         if (Bukkit.isPrimaryThread())
             throw new IllegalStateException("NMS.fillProfileProperties cannot be invoked from the main thread.");
         MinecraftSessionService sessionService = ((CraftServer) Bukkit.getServer()).getServer().getSessionService();
-        return sessionService.fetchProfile(profile.getId(), requireSecure).profile();
+        if (!(sessionService instanceof YggdrasilMinecraftSessionService))
+            return sessionService.fetchProfile(profile.getId(), requireSecure).profile();
+        URL url = HttpAuthenticationService
+                .constantURL(getAuthServerBaseUrl() + UndashedUuid.toString(profile.getId()));
+        url = HttpAuthenticationService.concatenateURL(url, "unsigned=" + !requireSecure);
+        MinecraftClient client = (MinecraftClient) MINECRAFT_CLIENT.invoke(sessionService);
+        MinecraftProfilePropertiesResponse response = client.get(url, MinecraftProfilePropertiesResponse.class);
+
+        return response.toProfile();
     }
 
     public String getAuthServerBaseUrl() {
@@ -912,22 +926,6 @@ public class NMSImpl implements NMSBridge {
     }
 
     @Override
-    public void linkTextInteraction(org.bukkit.entity.Player player, org.bukkit.entity.Entity entity,
-            org.bukkit.entity.Entity mount, double offset) {
-        offset += getRidingHeightOffset(entity, mount);
-        sendPacket(player,
-                new ClientboundBundlePacket(List.of(
-                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
-                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_WIDTH, 0f).value(),
-                                        new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, (float) offset).value(),
-                                        new SynchedEntityData.DataItem<>(DATA_POSE, Pose.CROAKING).value(),
-                                        new SynchedEntityData.DataItem<>(DATA_NAME_VISIBLE, true).value())),
-                        new ClientboundSetPassengersPacket(getHandle(mount)),
-                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
-                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, 999999f).value())))));
-    }
-
-    @Override
     public void load(CommandManager manager) {
         registerTraitWithCommand(manager, EnderDragonTrait.class);
         registerTraitWithCommand(manager, AllayTrait.class);
@@ -1174,6 +1172,11 @@ public class NMSImpl implements NMSBridge {
     }
 
     @Override
+    public void markPoseDirty(org.bukkit.entity.Entity entity) {
+        getHandle(entity).getEntityData().markDirty(DATA_POSE);
+    }
+
+    @Override
     public void mount(org.bukkit.entity.Entity entity, org.bukkit.entity.Entity passenger) {
         if (getHandle(passenger) == null)
             return;
@@ -1210,7 +1213,8 @@ public class NMSImpl implements NMSBridge {
             if (trait.mirrorName()) {
                 list.set(i,
                         new ClientboundPlayerInfoUpdatePacket.Entry(npcInfo.profileId(), playerProfile, !disableTablist,
-                                npcInfo.latency(), npcInfo.gameMode(), Component.literal(playerProfile.getName()),
+                                npcInfo.latency(), npcInfo.gameMode(), Component.literal(Util
+                                        .possiblyStripBedrockPrefix(playerProfile.getName(), playerProfile.getId())),
                                 npcInfo.chatSession()));
                 changed = true;
                 continue;
@@ -1298,6 +1302,22 @@ public class NMSImpl implements NMSBridge {
                 return;
             player.doTick();
         };
+    }
+
+    @Override
+    public void positionInteractionText(org.bukkit.entity.Player player, org.bukkit.entity.Entity entity,
+            org.bukkit.entity.Entity mount, double offset) {
+        offset += getRidingHeightOffset(entity, mount);
+        sendPacket(player,
+                new ClientboundBundlePacket(List.of(
+                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
+                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_WIDTH, 0f).value(),
+                                        new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, (float) offset).value(),
+                                        new SynchedEntityData.DataItem<>(DATA_POSE, Pose.CROAKING).value(),
+                                        new SynchedEntityData.DataItem<>(DATA_NAME_VISIBLE, true).value())),
+                        new ClientboundSetPassengersPacket(getHandle(mount)),
+                        new ClientboundSetEntityDataPacket(entity.getEntityId(),
+                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, 999999f).value())))));
     }
 
     @Override
@@ -1400,8 +1420,8 @@ public class NMSImpl implements NMSBridge {
     public void sendTabListRemove(Player recipient, Collection<Player> players) {
         Preconditions.checkNotNull(recipient);
         Preconditions.checkNotNull(players);
-        sendPacket(recipient, new ClientboundPlayerInfoRemovePacket(
-                players.stream().map((Function<? super Player, ? extends UUID>) Player::getUniqueId).collect(Collectors.toList())));
+        sendPacket(recipient, new ClientboundPlayerInfoRemovePacket(players.stream()
+                .map((Function<? super Player, ? extends UUID>) Player::getUniqueId).collect(Collectors.toList())));
     }
 
     @Override
@@ -2296,9 +2316,10 @@ public class NMSImpl implements NMSBridge {
     }
 
     public static SoundEvent getSoundEffect(NPC npc, SoundEvent snd, NPC.Metadata meta) {
-        return npc == null || !npc.data().has(meta) ? snd
-                : BuiltInRegistries.SOUND_EVENT
-                        .get(new ResourceLocation(npc.data().get(meta, snd == null ? "" : snd.toString())));
+        if (npc == null)
+            return snd;
+        String data = npc.data().get(meta);
+        return data == null ? snd : BuiltInRegistries.SOUND_EVENT.get(ResourceLocation.tryParse(data));
     }
 
     public static boolean isLeashed(NPC npc, Supplier<Boolean> isLeashed, Mob entity) {
@@ -2556,6 +2577,7 @@ public class NMSImpl implements NMSBridge {
             PlayerAdvancements.class);
 
     private static final MethodHandle ARMADILLO_SCUTE_TIME = NMS.getSetter(Armadillo.class, "cj");
+
     private static final MethodHandle ATTRIBUTE_PROVIDER_MAP = NMS.getFirstGetter(AttributeSupplier.class, Map.class);
     private static final MethodHandle ATTRIBUTE_PROVIDER_MAP_SETTER = NMS.getFirstFinalSetter(AttributeSupplier.class,
             Map.class);
@@ -2605,6 +2627,8 @@ public class NMSImpl implements NMSBridge {
     private static EntityDataAccessor<Float> INTERACTION_WIDTH = null;
     private static final MethodHandle JUMP_FIELD = NMS.getGetter(LivingEntity.class, "bn");
     private static final MethodHandle LOOK_CONTROL_SETTER = NMS.getFirstSetter(Mob.class, LookControl.class);
+    private static final MethodHandle MINECRAFT_CLIENT = NMS.getFirstGetter(YggdrasilMinecraftSessionService.class,
+            MinecraftClient.class);
     private static final MethodHandle MOVE_CONTROLLER_OPERATION = NMS.getSetter(MoveControl.class, "k");
     private static final MethodHandle NAVIGATION_CREATE_PATHFINDER = NMS
             .getFirstMethodHandleWithReturnType(PathNavigation.class, true, PathFinder.class, int.class);

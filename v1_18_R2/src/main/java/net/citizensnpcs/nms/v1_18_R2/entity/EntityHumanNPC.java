@@ -29,7 +29,6 @@ import net.citizensnpcs.nms.v1_18_R2.util.EmptyServerStatsCounter;
 import net.citizensnpcs.nms.v1_18_R2.util.MobAI;
 import net.citizensnpcs.nms.v1_18_R2.util.MobAI.ForwardingMobAI;
 import net.citizensnpcs.nms.v1_18_R2.util.NMSImpl;
-import net.citizensnpcs.nms.v1_18_R2.util.PlayerlistTracker;
 import net.citizensnpcs.npc.CitizensNPC;
 import net.citizensnpcs.npc.ai.NPCHolder;
 import net.citizensnpcs.npc.skin.SkinPacketTracker;
@@ -60,7 +59,6 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
     private MobAI ai;
     private int jumpTicks = 0;
     private final CitizensNPC npc;
-    private PlayerlistTracker playerlistTracker;
     private final SkinPacketTracker skinTracker;
     private EmptyServerStatsCounter statsCache;
 
@@ -82,10 +80,8 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
     }
 
     @Override
-    public boolean broadcastToPlayer(ServerPlayer entityplayer) {
-        if (npc != null && playerlistTracker == null)
-            return false;
-        return super.broadcastToPlayer(entityplayer);
+    public boolean broadcastToPlayer(ServerPlayer player) {
+        return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
     }
 
     @Override
@@ -141,7 +137,6 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
         }
         ai.getJumpControl().tick();
         ai.getMoveControl().tick();
-        detectEquipmentUpdates();
         this.noPhysics = isSpectator();
         if (isSpectator()) {
             this.onGround = false;
@@ -351,15 +346,12 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
         npc.getOrAddTrait(SkinTrait.class).setSkinPersistent(skinName, signature, data);
     }
 
-    public void setTracked(PlayerlistTracker tracker) {
-        this.playerlistTracker = tracker;
-    }
-
     @Override
     public void tick() {
         super.tick();
         if (npc == null)
             return;
+        detectEquipmentUpdates();
         Bukkit.getServer().getPluginManager().unsubscribeFromPermission("bukkit.broadcast.user", getBukkitEntity());
         updatePackets(npc.getNavigator().isNavigating());
         npc.update();

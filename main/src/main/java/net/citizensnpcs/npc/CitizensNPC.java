@@ -55,7 +55,6 @@ import net.citizensnpcs.trait.SitTrait;
 import net.citizensnpcs.trait.SkinLayers;
 import net.citizensnpcs.trait.SneakTrait;
 import net.citizensnpcs.util.ChunkCoord;
-import net.citizensnpcs.util.EntityPacketTracker;
 import net.citizensnpcs.util.Messages;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.PlayerAnimation;
@@ -324,6 +323,7 @@ public class CitizensNPC extends AbstractNPC {
                 ex.printStackTrace();
             }
         }
+        data().set(NPC.Metadata.NPC_SPAWNING_IN_PROGRESS, true);
         boolean wasLoaded = Messaging.isDebugging() ? Util.isLoaded(at) : false;
         boolean couldSpawn = entityController.spawn(at);
 
@@ -335,19 +335,12 @@ public class CitizensNPC extends AbstractNPC {
             // we need to wait before trying to spawn
             entityController.remove();
             Bukkit.getPluginManager().callEvent(new NPCNeedsRespawnEvent(this, at));
+            data().remove(NPC.Metadata.NPC_SPAWNING_IN_PROGRESS);
             return false;
         }
-        // Spawning the entity will create an entity tracker that is not controlled by Citizens. This is fixed later in
-        // spawning; to avoid sending packets twice, try to hide the entity initially
-        EntityPacketTracker tracker = NMS.getPacketTracker(getEntity());
-        if (tracker != null) {
-            for (Player player : Bukkit.getServer().getOnlinePlayers()) {
-                tracker.unlink(player);
-            }
-        }
+        // Spawning the entity will initially create an entity tracker that is not controlled by Citizens
         NMS.setLocationDirectly(getEntity(), at);
-        NMS.setHeadYaw(getEntity(), at.getYaw());
-        NMS.setBodyYaw(getEntity(), at.getYaw());
+        NMS.setHeadAndBodyYaw(getEntity(), at.getYaw());
 
         // Paper now doesn't actually set entities as valid for a few ticks while adding entities to chunks
         // Need to check the entity is really valid for a few ticks before finalising spawning
@@ -392,6 +385,7 @@ public class CitizensNPC extends AbstractNPC {
                     }
                 }
                 NMS.replaceTracker(getEntity());
+                data().remove(NPC.Metadata.NPC_SPAWNING_IN_PROGRESS);
                 EntityType type = getEntity().getType();
                 if (type.isAlive()) {
                     LivingEntity entity = (LivingEntity) getEntity();
@@ -487,7 +481,8 @@ public class CitizensNPC extends AbstractNPC {
                     NMS.activate(getEntity());
                 }
             }
-            boolean shouldSwim = data().get(NPC.Metadata.SWIM, SwimmingExaminer.isWaterMob(getEntity()))
+            boolean shouldSwim = data().get(NPC.Metadata.SWIM,
+                    !useMinecraftAI() && SwimmingExaminer.isWaterMob(getEntity()))
                     && MinecraftBlockExaminer.isLiquid(loc.getBlock().getType());
             if (navigator.isNavigating()) {
                 if (shouldSwim) {
@@ -580,7 +575,7 @@ public class CitizensNPC extends AbstractNPC {
             data().setPersistent(NPC.Metadata.FLYABLE, true);
         }
         if (!hasTrait(Gravity.class)) {
-            getOrAddTrait(Gravity.class).setEnabled(true);
+            getOrAddTrait(Gravity.class).setHasGravity(false);
         }
     }
 
@@ -610,7 +605,7 @@ public class CitizensNPC extends AbstractNPC {
         }
     }
 
-    private static SetMultimap<ChunkCoord, NPC> CHUNK_LOADERS = HashMultimap.create();
+    private static final SetMultimap<ChunkCoord, NPC> CHUNK_LOADERS = HashMultimap.create();
     private static boolean SUPPORT_GLOWING = false;
     private static boolean SUPPORT_NODAMAGE_TICKS = false;
     private static boolean SUPPORT_PICKUP_ITEMS = false;
