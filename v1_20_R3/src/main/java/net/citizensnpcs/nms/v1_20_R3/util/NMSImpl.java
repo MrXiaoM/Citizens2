@@ -903,7 +903,7 @@ public class NMSImpl implements NMSBridge {
     }
 
     @Override
-    public void linkTextInteraction(org.bukkit.entity.Player player, org.bukkit.entity.Entity entity,
+    public void positionInteractionText(org.bukkit.entity.Player player, org.bukkit.entity.Entity entity,
             org.bukkit.entity.Entity mount, double offset) {
         Interaction handle = (Interaction) getHandle(entity);
         offset += handle.getMyRidingOffset(getHandle(mount));

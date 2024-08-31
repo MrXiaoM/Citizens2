@@ -1265,15 +1265,15 @@ public class NMSImpl implements NMSBridge {
             org.bukkit.entity.Entity mount, double offset) {
         offset += getRidingHeightOffset(entity, mount);
         sendPacket(player,
-                new ClientboundBundlePacket(List.of(
+                new ClientboundBundlePacket(Lists.newArrayList(
                         new ClientboundSetEntityDataPacket(entity.getEntityId(),
-                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_WIDTH, 0f).value(),
+                                Lists.newArrayList(new SynchedEntityData.DataItem<>(INTERACTION_WIDTH, 0f).value(),
                                         new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, (float) offset).value(),
                                         new SynchedEntityData.DataItem<>(DATA_POSE, Pose.CROAKING).value(),
                                         new SynchedEntityData.DataItem<>(DATA_NAME_VISIBLE, true).value())),
                         new ClientboundSetPassengersPacket(getHandle(mount)),
                         new ClientboundSetEntityDataPacket(entity.getEntityId(),
-                                List.of(new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, 999999f).value())))));
+                                Lists.newArrayList(new SynchedEntityData.DataItem<>(INTERACTION_HEIGHT, 999999f).value())))));
     }
 
     @Override
@@ -1943,7 +1943,7 @@ public class NMSImpl implements NMSBridge {
         public CraftAnvilView getBukkitView() {
             if (this.bukkitEntity == null) {
                 this.bukkitEntity = new CraftAnvilView(this.player.getBukkitEntity(), new CitizensInventoryAnvil(
-                        this.access.getLocation(), this.inputSlots, this.resultSlots, this, anvil), this);
+                        this.access.getLocation(), this.inputSlots, this.resultSlots, anvil), this);
             }
             return this.bukkitEntity;
         }
@@ -1953,7 +1953,7 @@ public class NMSImpl implements NMSBridge {
         private final Inventory wrapped;
 
         public CitizensInventoryAnvil(Location location, Container inventory, Container resultInventory,
-                AnvilMenu container, Inventory wrapped) {
+                Inventory wrapped) {
             super(location, inventory, resultInventory);
             this.wrapped = wrapped;
         }
