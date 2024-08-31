@@ -34,7 +34,6 @@ import net.citizensnpcs.npc.skin.SkinPacketTracker;
 import net.citizensnpcs.npc.skin.SkinnableEntity;
 import net.citizensnpcs.trait.Gravity;
 import net.citizensnpcs.trait.SkinTrait;
-import net.citizensnpcs.util.EmptySocket;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
 import net.minecraft.core.BlockPos;
@@ -232,15 +231,11 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
     }
 
     private void initialise(MinecraftServer minecraftServer) {
-        Socket socket = new EmptySocket();
-        EmptyNetworkManager conn = null;
         try {
-            conn = new EmptyNetworkManager(PacketFlow.CLIENTBOUND);
+            EmptyNetworkManager conn = new EmptyNetworkManager(PacketFlow.CLIENTBOUND);
             connection = new EmptyNetHandler(minecraftServer, conn, this);
-            conn.setListener(connection);
-            socket.close();
         } catch (IOException e) {
-            // swallow
+            e.printStackTrace();
         }
         this.invulnerableTime = 0;
         NMS.setStepHeight(getBukkitEntity(), 1); // the default (0) breaks step climbing

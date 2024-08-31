@@ -207,13 +207,19 @@ public class RabbitController extends MobEntityController {
 
         @Override
         public void setVariant(Variant variant) {
-            if (npc != null) {
-                if (NMSImpl.getRabbitTypeField() == null)
-                    return;
-                this.entityData.set(NMSImpl.getRabbitTypeField(), variant.id());
+            if (npc == null) {
+                super.setVariant(variant);
                 return;
             }
-            super.setVariant(variant);
+            if (npc.useMinecraftAI()) {
+                if (goalSelector.getAvailableGoals().size() == 0) {
+                    registerGoals(); // make sure the evil goals include the default AI goals
+                }
+                super.setVariant(variant);
+                NMSImpl.clearGoals(npc, goalSelector, targetSelector);
+            } else if (NMSImpl.RABBIT_TYPE_DATAWATCHER != null) {
+                entityData.set(NMSImpl.RABBIT_TYPE_DATAWATCHER, variant.id());
+            }
         }
 
         @Override
