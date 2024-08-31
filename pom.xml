@@ -44,6 +44,7 @@
                 <module>v1_8_R3</module>
                 <module>v1_16_R3</module>
                 <module>v1_19_R3</module>
+                <module>v1_20_R1</module>
                 <module>v1_20_R3</module>
                 <module>v1_20_R4</module>
                 <module>v1_21_R1</module>
@@ -65,6 +66,7 @@
                 <module>v1_17_R1</module>
                 <module>v1_18_R2</module>
                 <module>v1_19_R3</module>
+                <module>v1_20_R1</module>
                 <module>v1_20_R3</module>
                 <module>v1_20_R4</module>
                 <module>v1_21_R1</module>
@@ -75,7 +77,7 @@
             <id>dev</id>
             <modules>
                 <module>main</module>
-                <module>v1_20_R3</module>
+                <module>v1_21_R1</module>
                 <module>dist</module>
             </modules>
         </profile>
