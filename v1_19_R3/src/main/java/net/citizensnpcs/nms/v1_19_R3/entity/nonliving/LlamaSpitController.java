@@ -33,15 +33,11 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public class LlamaSpitController extends AbstractEntityController {
-    public LlamaSpitController() {
-        super(EntityLlamaSpitNPC.class);
-    }
 
     @Override
     protected org.bukkit.entity.Entity createEntity(Location at, NPC npc) {
         ServerLevel ws = ((CraftWorld) at.getWorld()).getHandle();
-        final EntityLlamaSpitNPC handle = new EntityLlamaSpitNPC(
-                NMSImpl.<LlamaSpit> getEntityType(EntityLlamaSpitNPC.class), ws, npc);
+        final EntityLlamaSpitNPC handle = new EntityLlamaSpitNPC(EntityType.LLAMA_SPIT, ws, npc);
         handle.absMoveTo(at.getX(), at.getY(), at.getZ(), at.getPitch(), at.getYaw());
         return handle.getBukkitEntity();
     }
@@ -52,11 +48,6 @@ public class LlamaSpitController extends AbstractEntityController {
     }
 
     public static class EntityLlamaSpitNPC extends LlamaSpit implements NPCHolder {
-        @Override
-        public boolean broadcastToPlayer(ServerPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityLlamaSpitNPC(EntityType<? extends LlamaSpit> types, Level level) {
@@ -71,6 +62,11 @@ public class LlamaSpitController extends AbstractEntityController {
         public EntityLlamaSpitNPC(Level world, NPC npc, Llama entity) {
             super(world, entity);
             this.npc = (CitizensNPC) npc;
+        }
+
+        @Override
+        public boolean broadcastToPlayer(ServerPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
         }
 
         @Override

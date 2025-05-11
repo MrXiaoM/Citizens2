@@ -85,18 +85,13 @@ public class Skin {
         if (skinName.equals(cachedName) && texture != null && !texture.equals("cache")) {
             setNPCTexture(entity, new SkinProperty("textures", texture, skinTrait.getSignature()));
 
-            // check if NPC prefers to use cached skin over the latest skin.
-            if (entity.getNPC().data().has("player-skin-use-latest")) {
-                entity.getNPC().data().remove("player-skin-use-latest");
-            }
             if (!skinTrait.shouldUpdateSkins()) // cache preferred
                 return true;
         }
         if (!hasSkinData()) {
-            String defaultSkinName = ChatColor.stripColor(npc.getName()).toLowerCase(Locale.ROOT);
+            String npcName = ChatColor.stripColor(npc.getName()).toLowerCase(Locale.ROOT);
 
-            if (npc.hasTrait(SkinTrait.class) && skinName.equals(defaultSkinName)
-                    && !npc.getOrAddTrait(SkinTrait.class).fetchDefaultSkin())
+            if (!skinTrait.shouldUpdateSkins() && !skinTrait.fetchDefaultSkin() && skinName.equals(npcName))
                 return false;
 
             if (hasFetched)
@@ -355,8 +350,7 @@ public class Skin {
         NPC npc = entity.getNPC();
         SkinTrait skinTrait = npc.getOrAddTrait(SkinTrait.class);
 
-        // cache skins for faster initial skin availability and
-        // for use when the latest skin is not required.
+        // cache skins for faster initial skin availability and for use when the latest skin is not required.
         npc.data().setPersistent(CACHED_SKIN_UUID_NAME_METADATA, skinName);
         npc.data().setPersistent(CACHED_SKIN_UUID_METADATA, skinId.toString());
         if (skinProperty.value != null) {
@@ -370,8 +364,7 @@ public class Skin {
     private static void setNPCTexture(SkinnableEntity entity, SkinProperty skinProperty) {
         GameProfile profile = entity.getProfile();
 
-        // don't set property if already set since this sometimes causes
-        // packet errors that disconnect the client.
+        // don't set property if already set since this sometimes causes packet errors that disconnect the client.
         SkinProperty current = SkinProperty.fromMojangProfile(profile);
         if (current != null && current.value.equals(skinProperty.value) && current.signature != null
                 && current.signature.equals(skinProperty.signature))

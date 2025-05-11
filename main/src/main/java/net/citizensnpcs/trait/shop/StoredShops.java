@@ -3,7 +3,9 @@ package net.citizensnpcs.trait.shop;
 import java.util.Map;
 
 import com.google.common.collect.Maps;
+import com.google.common.primitives.Ints;
 
+import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.persistence.Persist;
 import net.citizensnpcs.api.persistence.PersistenceLoader;
 import net.citizensnpcs.api.util.Messaging;
@@ -34,13 +36,16 @@ public class StoredShops {
     }
 
     public NPCShop getGlobalShop(String name) {
-        return globalShops.computeIfAbsent(name, NPCShop::new);
+        return globalShops.get(name);
     }
 
     public NPCShop getShop(String name) {
-        if (npcShops.containsKey(name))
-            return npcShops.get(name);
-        return getGlobalShop(name);
+        Integer id = Ints.tryParse(name);
+        if (id != null && CitizensAPI.getNPCRegistry().getById(id) != null) {
+            name = CitizensAPI.getNPCRegistry().getById(id).getUniqueId().toString();
+        }
+        NPCShop shop = npcShops.get(name);
+        return shop == null ? getGlobalShop(name) : shop;
     }
 
     public void load() {

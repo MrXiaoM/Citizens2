@@ -41,10 +41,8 @@ import net.citizensnpcs.api.util.EntityDim;
 import net.citizensnpcs.api.util.SpigotUtil.InventoryViewAPI;
 import net.citizensnpcs.npc.ai.MCNavigationStrategy.MCNavigator;
 import net.citizensnpcs.npc.ai.MCTargetStrategy.TargetNavigator;
-import net.citizensnpcs.npc.ai.NPCHolder;
 import net.citizensnpcs.trait.EntityPoseTrait.EntityPose;
 import net.citizensnpcs.trait.MirrorTrait;
-import net.citizensnpcs.trait.SneakTrait;
 import net.citizensnpcs.trait.versioned.ArmadilloTrait.ArmadilloState;
 import net.citizensnpcs.trait.versioned.CamelTrait.CamelPose;
 import net.citizensnpcs.trait.versioned.SnifferTrait.SnifferState;
@@ -62,6 +60,8 @@ public interface NMSBridge {
     public void attack(LivingEntity attacker, LivingEntity target);
 
     public void cancelMoveDestination(Entity entity);
+
+    public boolean canNavigateTo(Entity entity, Location dest, NavigatorParameters params);
 
     public default Iterable<Object> createBundlePacket(List<Object> packets) {
         return packets;
@@ -85,19 +85,21 @@ public interface NMSBridge {
 
     public BoundingBox getCollisionBox(Block block);
 
+    public default BoundingBox getCollisionBox(Object blockdata) {
+        return BoundingBox.ONE;
+    }
+
     public default Map<String, Object> getComponentMap(ItemStack item) {
         return item.getItemMeta().serialize();
     }
 
     public Location getDestination(Entity entity);
 
+    public float getForwardBackwardMovement(Entity entity);
+
     public GameProfileRepository getGameProfileRepository();
 
     public float getHeadYaw(Entity entity);
-
-    public float getHorizontalMovement(Entity entity);
-
-    public NPC getNPC(Entity entity);
 
     public EntityPacketTracker getPacketTracker(Entity entity);
 
@@ -127,13 +129,13 @@ public interface NMSBridge {
 
     public Entity getVehicle(Entity entity);
 
-    public float getVerticalMovement(Entity entity);
-
     public default Collection<Player> getViewingPlayers(Entity entity) {
         return entity.getTrackedBy();
     }
 
     public double getWidth(Entity entity);
+
+    public float getXZMovement(Entity entity);
 
     public float getYaw(Entity entity);
 
@@ -147,6 +149,10 @@ public interface NMSBridge {
     }
 
     public boolean isSolid(Block in);
+
+    public default boolean isSprinting(Entity entity) {
+        return entity instanceof Player ? ((Player) entity).isSprinting() : false;
+    }
 
     public boolean isValid(Entity entity);
 
@@ -177,7 +183,7 @@ public interface NMSBridge {
     public default void positionInteractionText(Player player, Entity interaction, Entity mount, double height) {
     }
 
-    public void registerEntityClass(Class<?> clazz);
+    public void registerEntityClass(Class<?> clazz, Object type);
 
     public void remove(Entity entity);
 
@@ -242,6 +248,8 @@ public interface NMSBridge {
 
     public void setNoGravity(Entity entity, boolean nogravity);
 
+    public void setOpWithoutSaving(Player player, boolean op);
+
     public default void setPandaSitting(Entity entity, boolean sitting) {
         throw new UnsupportedOperationException();
     }
@@ -272,9 +280,7 @@ public interface NMSBridge {
     public void setSitting(Tameable tameable, boolean sitting);
 
     public default void setSneaking(Entity entity, boolean sneaking) {
-        if (entity instanceof NPCHolder) {
-            ((NPCHolder) entity).getNPC().getOrAddTrait(SneakTrait.class).setSneaking(sneaking);
-        } else if (entity instanceof Player) {
+        if (entity instanceof Player) {
             ((Player) entity).setSneaking(sneaking);
         }
     }

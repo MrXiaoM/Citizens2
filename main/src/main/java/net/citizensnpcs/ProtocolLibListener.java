@@ -12,6 +12,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.inventory.ItemStack;
 
 import com.comphenix.protocol.PacketType;
 import com.comphenix.protocol.PacketType.Play.Server;
@@ -23,6 +24,11 @@ import com.comphenix.protocol.events.PacketAdapter;
 import com.comphenix.protocol.events.PacketContainer;
 import com.comphenix.protocol.events.PacketEvent;
 import com.comphenix.protocol.reflect.FieldAccessException;
+import com.comphenix.protocol.reflect.StructureModifier;
+import com.comphenix.protocol.wrappers.BukkitConverters;
+import com.comphenix.protocol.wrappers.EnumWrappers;
+import com.comphenix.protocol.wrappers.EnumWrappers.ItemSlot;
+import com.comphenix.protocol.wrappers.Pair;
 import com.comphenix.protocol.wrappers.PlayerInfoData;
 import com.comphenix.protocol.wrappers.WrappedChatComponent;
 import com.comphenix.protocol.wrappers.WrappedDataValue;
@@ -30,6 +36,7 @@ import com.comphenix.protocol.wrappers.WrappedGameProfile;
 import com.comphenix.protocol.wrappers.WrappedSignedProperty;
 import com.comphenix.protocol.wrappers.WrappedWatchableObject;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
@@ -39,6 +46,8 @@ import net.citizensnpcs.api.event.NPCDespawnEvent;
 import net.citizensnpcs.api.event.NPCEvent;
 import net.citizensnpcs.api.event.NPCSpawnEvent;
 import net.citizensnpcs.api.npc.NPC;
+import net.citizensnpcs.api.trait.trait.Equipment;
+import net.citizensnpcs.api.trait.trait.Equipment.EquipmentSlot;
 import net.citizensnpcs.api.trait.trait.MobType;
 import net.citizensnpcs.api.util.Messaging;
 import net.citizensnpcs.npc.ai.NPCHolder;
@@ -51,16 +60,91 @@ import net.citizensnpcs.util.SkinProperty;
 import net.citizensnpcs.util.Util;
 
 public class ProtocolLibListener implements Listener {
-    private ProtocolManager manager;
+    private final ProtocolManager manager;
     private final Map<UUID, MirrorTrait> mirrorTraits = Maps.newConcurrentMap();
-    private Citizens plugin;
+    private final Citizens plugin;
     private final Map<Integer, RotationTrait> rotationTraits = Maps.newConcurrentMap();
 
     public ProtocolLibListener(Citizens plugin) {
         this.plugin = plugin;
         manager = ProtocolLibrary.getProtocolManager();
         Bukkit.getPluginManager().registerEvents(this, plugin);
+        manager.addPacketListener(new PacketAdapter(plugin, ListenerPriority.NORMAL, Server.ENTITY_EQUIPMENT) {
+            private EquipmentSlot convert(ItemSlot slot) {
+                if (slot.name().equals("BODY"))
+                    return EquipmentSlot.BODY;
+                switch (slot) {
+                    case CHEST:
+                        return EquipmentSlot.CHESTPLATE;
+                    case FEET:
+                        return EquipmentSlot.BOOTS;
+                    case HEAD:
+                        return EquipmentSlot.HELMET;
+                    case LEGS:
+                        return EquipmentSlot.LEGGINGS;
+                    case MAINHAND:
+                        return EquipmentSlot.HAND;
+                    case OFFHAND:
+                        return EquipmentSlot.OFF_HAND;
+                    default:
+                        return null;
+                }
+            }
+
+            @Override
+            public void onPacketSending(PacketEvent event) {
+                NPC npc = getNPCFromPacket(event);
+                if (npc == null)
+                    return;
+                MirrorTrait mirror = npc.getTraitNullable(MirrorTrait.class);
+                if (mirror != null && mirror.getEquipmentFunction() != null && mirror.isMirroring(event.getPlayer())) {
+                    StructureModifier<List<Pair<EnumWrappers.ItemSlot, ItemStack>>> modifier = event.getPacket()
+                            .getLists(BukkitConverters.getPairConverter(EnumWrappers.getItemSlotConverter(),
+                                    BukkitConverters.getItemStackConverter()));
+                    List<Pair<EnumWrappers.ItemSlot, ItemStack>> equipment = Lists.newArrayList();
+                    equipment.add(new Pair<>(ItemSlot.CHEST,
+                            mirror.getEquipmentFunction().apply(event.getPlayer(), EquipmentSlot.CHESTPLATE)));
+                    equipment.add(new Pair<>(ItemSlot.FEET,
+                            mirror.getEquipmentFunction().apply(event.getPlayer(), EquipmentSlot.BOOTS)));
+                    equipment.add(new Pair<>(ItemSlot.HEAD,
+                            mirror.getEquipmentFunction().apply(event.getPlayer(), EquipmentSlot.HELMET)));
+                    equipment.add(new Pair<>(ItemSlot.LEGS,
+                            mirror.getEquipmentFunction().apply(event.getPlayer(), EquipmentSlot.LEGGINGS)));
+                    equipment.add(new Pair<>(ItemSlot.MAINHAND,
+                            mirror.getEquipmentFunction().apply(event.getPlayer(), EquipmentSlot.HAND)));
+                    equipment.add(new Pair<>(ItemSlot.OFFHAND,
+                            mirror.getEquipmentFunction().apply(event.getPlayer(), EquipmentSlot.OFF_HAND)));
+                    modifier.write(0, equipment);
+                    return;
+                }
+                Equipment trait = npc.getTraitNullable(Equipment.class);
+                if (trait == null)
+                    return;
+                PacketContainer packet = event.getPacket();
+                StructureModifier<List<Pair<EnumWrappers.ItemSlot, ItemStack>>> modifier = packet
+                        .getLists(BukkitConverters.getPairConverter(EnumWrappers.getItemSlotConverter(),
+                                BukkitConverters.getItemStackConverter()));
+                for (int i = 0; i < modifier.getValues().size(); i++) {
+                    List<Pair<EnumWrappers.ItemSlot, ItemStack>> pairs = modifier.read(i);
+                    boolean modified = false;
+                    for (Pair<EnumWrappers.ItemSlot, ItemStack> pair : pairs) {
+                        EquipmentSlot converted = convert(pair.getFirst());
+                        if (converted == null)
+                            continue;
+                        ItemStack cosmetic = trait.getCosmetic(converted);
+                        if (cosmetic != null) {
+                            pair.setSecond(cosmetic);
+                            modified = true;
+                        }
+                    }
+                    if (modified) {
+                        modifier.write(i, pairs);
+                    }
+                }
+            }
+        });
         manager.addPacketListener(new PacketAdapter(plugin, ListenerPriority.HIGHEST, Server.ENTITY_METADATA) {
+
             @Override
             public void onPacketSending(PacketEvent event) {
                 NPC npc = getNPCFromPacket(event);

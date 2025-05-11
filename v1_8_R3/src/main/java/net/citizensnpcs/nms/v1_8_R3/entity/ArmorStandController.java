@@ -49,11 +49,6 @@ public class ArmorStandController extends MobEntityController {
     }
 
     public static class EntityArmorStandNPC extends EntityArmorStand implements NPCHolder {
-        @Override
-        public boolean a(EntityPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityArmorStandNPC(World world) {
@@ -63,6 +58,7 @@ public class ArmorStandController extends MobEntityController {
         public EntityArmorStandNPC(World world, NPC npc) {
             super(world);
             this.npc = (CitizensNPC) npc;
+            NMS.setStepHeight(getBukkitEntity(), 1);
         }
 
         @Override
@@ -78,6 +74,11 @@ public class ArmorStandController extends MobEntityController {
                     getBukkitEntity());
             Bukkit.getPluginManager().callEvent(event);
             return !event.isCancelled();
+        }
+
+        @Override
+        public boolean a(EntityPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
         }
 
         @Override

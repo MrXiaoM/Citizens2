@@ -26,7 +26,7 @@ public class SitTrait extends Trait {
     }
 
     public boolean isSitting() {
-        return sittingAt != null;
+        return sittingAt != null && sittingAt.getWorld() != null;
     }
 
     @Override
@@ -36,7 +36,7 @@ public class SitTrait extends Trait {
             return;
         }
         if (chair != null) {
-            if (chair.getEntity() != null) {
+            if (chair.isSpawned()) {
                 chair.getEntity().eject();
                 Location npcLoc = npc.getEntity().getLocation().clone();
                 if (requiresPassengerOffsetCorrection()) {
@@ -66,7 +66,8 @@ public class SitTrait extends Trait {
 
         if (SUPPORT_SITTABLE && npc.getEntity() instanceof Sittable) {
             ((Sittable) npc.getEntity()).setSitting(true);
-            if (npc.getEntity().getLocation().distance(sittingAt) >= 0.03) {
+            if (sittingAt.getWorld() != npc.getEntity().getWorld()
+                    || npc.getEntity().getLocation().distance(sittingAt) >= 0.03) {
                 npc.teleport(sittingAt, TeleportCause.PLUGIN);
             }
             return;

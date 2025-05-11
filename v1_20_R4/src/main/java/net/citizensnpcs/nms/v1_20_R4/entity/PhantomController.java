@@ -14,7 +14,6 @@ import net.citizensnpcs.npc.CitizensNPC;
 import net.citizensnpcs.npc.ai.NPCHolder;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
-import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.server.level.ServerLevel;
@@ -30,7 +29,6 @@ import net.minecraft.world.entity.monster.Phantom;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.PushReaction;
 import net.minecraft.world.phys.AABB;
@@ -47,11 +45,6 @@ public class PhantomController extends MobEntityController {
     }
 
     public static class EntityPhantomNPC extends Phantom implements NPCHolder {
-        @Override
-        public boolean broadcastToPlayer(ServerPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
-        }
-
         private final CitizensNPC npc;
 
         private LookControl oldLookController;
@@ -95,6 +88,11 @@ public class PhantomController extends MobEntityController {
         }
 
         @Override
+        public boolean broadcastToPlayer(ServerPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
+        }
+
+        @Override
         protected boolean canRide(Entity entity) {
             if (npc != null && (entity instanceof Boat || entity instanceof AbstractMinecart))
                 return !npc.isProtected();
@@ -102,23 +100,9 @@ public class PhantomController extends MobEntityController {
         }
 
         @Override
-        public boolean causeFallDamage(float f, float f1, DamageSource damagesource) {
-            if (npc == null || !npc.isFlyable())
-                return super.causeFallDamage(f, f1, damagesource);
-            return false;
-        }
-
-        @Override
         public void checkDespawn() {
             if (npc == null) {
                 super.checkDespawn();
-            }
-        }
-
-        @Override
-        protected void checkFallDamage(double d0, boolean flag, BlockState iblockdata, BlockPos blockposition) {
-            if (npc == null || !npc.isFlyable()) {
-                super.checkFallDamage(d0, flag, iblockdata, blockposition);
             }
         }
 
@@ -195,14 +179,6 @@ public class PhantomController extends MobEntityController {
         }
 
         @Override
-        public boolean onClimbable() {
-            if (npc == null || !npc.isFlyable())
-                return super.onClimbable();
-            else
-                return false;
-        }
-
-        @Override
         public void onSyncedDataUpdated(EntityDataAccessor<?> datawatcherobject) {
             if (npc == null) {
                 super.onSyncedDataUpdated(datawatcherobject);
@@ -236,15 +212,6 @@ public class PhantomController extends MobEntityController {
             if (npc == null)
                 return super.teleportTo(worldserver, location);
             return NMSImpl.teleportAcrossWorld(this, worldserver, location);
-        }
-
-        @Override
-        public void travel(Vec3 vec3d) {
-            if (npc == null || !npc.isFlyable()) {
-                super.travel(vec3d);
-            } else {
-                NMSImpl.flyingMoveLogic(this, vec3d);
-            }
         }
 
         @Override

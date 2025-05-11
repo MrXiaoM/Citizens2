@@ -26,6 +26,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySelector;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.enderdragon.phases.EnderDragonPhase;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
@@ -53,11 +54,6 @@ public class EnderDragonController extends MobEntityController {
     }
 
     public static class EntityEnderDragonNPC extends EnderDragon implements NPCHolder {
-        @Override
-        public boolean broadcastToPlayer(ServerPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityEnderDragonNPC(EntityType<? extends EnderDragon> types, Level level) {
@@ -108,11 +104,11 @@ public class EnderDragonController extends MobEntityController {
                 }
                 Vec3 mot = getDeltaMovement();
                 if (mot.x != 0 || mot.y != 0 || mot.z != 0) {
-                    mot = mot.multiply(0.98, 0.98, 0.98);
                     if (getFirstPassenger() == null) {
                         setYRot(Util.getYawFromVelocity(getBukkitEntity(), mot.x, mot.z));
                     }
-                    setPos(getX() + mot.x, getY() + mot.y, getZ() + mot.z);
+                    move(MoverType.SELF, mot);
+                    mot = mot.multiply(0.98, 0.91, 0.98);
                     setDeltaMovement(mot);
                 }
                 if (npc.hasTrait(EnderDragonTrait.class) && npc.getOrAddTrait(EnderDragonTrait.class).isDestroyWalls()
@@ -147,6 +143,11 @@ public class EnderDragonController extends MobEntityController {
             } else {
                 super.aiStep();
             }
+        }
+
+        @Override
+        public boolean broadcastToPlayer(ServerPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
         }
 
         @Override

@@ -18,7 +18,6 @@ import net.citizensnpcs.npc.ai.NPCHolder;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
 import net.minecraft.server.v1_8_R3.AxisAlignedBB;
-import net.minecraft.server.v1_8_R3.EntityHuman;
 import net.minecraft.server.v1_8_R3.EntityItem;
 import net.minecraft.server.v1_8_R3.EntityPlayer;
 import net.minecraft.server.v1_8_R3.ItemStack;
@@ -26,9 +25,6 @@ import net.minecraft.server.v1_8_R3.NBTTagCompound;
 import net.minecraft.server.v1_8_R3.World;
 
 public class ItemController extends AbstractEntityController {
-    public ItemController() {
-        super(EntityItemNPC.class);
-    }
 
     @Override
     protected org.bukkit.entity.Entity createEntity(Location at, NPC npc) {
@@ -43,11 +39,6 @@ public class ItemController extends AbstractEntityController {
     }
 
     public static class EntityItemNPC extends EntityItem implements NPCHolder {
-        @Override
-        public boolean a(EntityPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityItemNPC(World world) {
@@ -66,6 +57,11 @@ public class ItemController extends AbstractEntityController {
         }
 
         @Override
+        public boolean a(EntityPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
+        }
+
+        @Override
         public boolean aL() {
             return npc == null ? super.aL() : npc.isPushableByFluids();
         }
@@ -77,13 +73,6 @@ public class ItemController extends AbstractEntityController {
             super.collide(entity);
             if (npc != null) {
                 Util.callCollisionEvent(npc, entity.getBukkitEntity());
-            }
-        }
-
-        @Override
-        public void d(EntityHuman entityhuman) {
-            if (npc == null) {
-                super.d(entityhuman);
             }
         }
 

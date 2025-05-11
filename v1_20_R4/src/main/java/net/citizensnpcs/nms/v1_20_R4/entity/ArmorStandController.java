@@ -48,12 +48,8 @@ public class ArmorStandController extends MobEntityController {
     }
 
     public static class EntityArmorStandNPC extends ArmorStand implements NPCHolder, ForwardingMobAI {
-        @Override
-        public boolean broadcastToPlayer(ServerPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
-        }
-
         private MobAI ai;
+
         private final CitizensNPC npc;
 
         public EntityArmorStandNPC(EntityType<? extends ArmorStand> types, Level level) {
@@ -65,7 +61,13 @@ public class ArmorStandController extends MobEntityController {
             this.npc = (CitizensNPC) npc;
             if (npc != null) {
                 ai = new BasicMobAI(this);
+                NMS.setStepHeight(getBukkitEntity(), 1);
             }
+        }
+
+        @Override
+        public boolean broadcastToPlayer(ServerPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
         }
 
         @Override

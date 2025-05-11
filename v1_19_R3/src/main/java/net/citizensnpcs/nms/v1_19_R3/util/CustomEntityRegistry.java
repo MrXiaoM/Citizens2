@@ -214,6 +214,11 @@ public class CustomEntityRegistry extends DefaultedMappedRegistry<EntityType<?>>
     }
 
     @Override
+    public Registry<EntityType<?>> freeze() {
+        return wrapped.freeze();
+    }
+
+    @Override
     public MappedRegistry<EntityType<?>> get() {
         return wrapped;
     }
@@ -312,6 +317,11 @@ public class CustomEntityRegistry extends DefaultedMappedRegistry<EntityType<?>>
     }
 
     @Override
+    public ResourceKey<? extends Registry<EntityType<?>>> key() {
+        return wrapped.key();
+    }
+
+    @Override
     public Set<ResourceLocation> keySet() {
         return wrapped.keySet();
     }
@@ -327,8 +337,18 @@ public class CustomEntityRegistry extends DefaultedMappedRegistry<EntityType<?>>
     }
 
     @Override
+    public Reference<EntityType<?>> register(ResourceKey<EntityType<?>> key, EntityType<?> type, Lifecycle lifecycle) {
+        return wrapped.register(key, type, lifecycle);
+    }
+
+    @Override
     public Set<ResourceKey<EntityType<?>>> registryKeySet() {
         return wrapped.registryKeySet();
+    }
+
+    @Override
+    public Lifecycle registryLifecycle() {
+        return wrapped.registryLifecycle();
     }
 
     @Override

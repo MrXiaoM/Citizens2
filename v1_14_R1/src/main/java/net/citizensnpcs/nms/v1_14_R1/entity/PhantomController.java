@@ -15,7 +15,6 @@ import net.citizensnpcs.npc.ai.NPCHolder;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
 import net.minecraft.server.v1_14_R1.AxisAlignedBB;
-import net.minecraft.server.v1_14_R1.BlockPosition;
 import net.minecraft.server.v1_14_R1.ControllerLook;
 import net.minecraft.server.v1_14_R1.ControllerMove;
 import net.minecraft.server.v1_14_R1.DamageSource;
@@ -28,7 +27,6 @@ import net.minecraft.server.v1_14_R1.EntityTypes;
 import net.minecraft.server.v1_14_R1.EnumDifficulty;
 import net.minecraft.server.v1_14_R1.EnumPistonReaction;
 import net.minecraft.server.v1_14_R1.FluidType;
-import net.minecraft.server.v1_14_R1.IBlockData;
 import net.minecraft.server.v1_14_R1.NBTTagCompound;
 import net.minecraft.server.v1_14_R1.SoundEffect;
 import net.minecraft.server.v1_14_R1.Tag;
@@ -46,11 +44,6 @@ public class PhantomController extends MobEntityController {
     }
 
     public static class EntityPhantomNPC extends EntityPhantom implements NPCHolder {
-        @Override
-        public boolean a(EntityPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityPhantomNPC(EntityTypes<? extends EntityPhantom> types, World world) {
@@ -73,23 +66,14 @@ public class PhantomController extends MobEntityController {
         }
 
         @Override
-        protected void a(double d0, boolean flag, IBlockData block, BlockPosition blockposition) {
-            if (npc == null || !npc.isFlyable()) {
-                super.a(d0, flag, block, blockposition);
-            }
-        }
-
-        @Override
         public void a(Entity entity, float strength, double dx, double dz) {
             NMS.callKnockbackEvent(npc, strength, dx, dz, evt -> super.a(entity, (float) evt.getStrength(),
                     evt.getKnockbackVector().getX(), evt.getKnockbackVector().getZ()));
         }
 
         @Override
-        public void b(float f, float f1) {
-            if (npc == null || !npc.isFlyable()) {
-                super.b(f, f1);
-            }
+        public boolean a(EntityPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
         }
 
         @Override
@@ -144,15 +128,6 @@ public class PhantomController extends MobEntityController {
         }
 
         @Override
-        public void e(Vec3D vec3d) {
-            if (npc == null || !npc.isFlyable()) {
-                super.e(vec3d);
-            } else {
-                NMSImpl.flyingMoveLogic(this, vec3d);
-            }
-        }
-
-        @Override
         public void f(double x, double y, double z) {
             Vector vector = Util.callPushEvent(npc, x, y, z);
             if (vector != null) {
@@ -191,14 +166,6 @@ public class PhantomController extends MobEntityController {
         @Override
         protected SoundEffect getSoundHurt(DamageSource damagesource) {
             return NMSImpl.getSoundEffect(npc, super.getSoundHurt(damagesource), NPC.Metadata.HURT_SOUND);
-        }
-
-        @Override
-        public boolean isClimbing() {
-            if (npc == null || !npc.isFlyable())
-                return super.isClimbing();
-            else
-                return false;
         }
 
         @Override

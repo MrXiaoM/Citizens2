@@ -1,12 +1,12 @@
 package net.citizensnpcs.trait.text;
 
 import java.time.Duration;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import org.bukkit.command.CommandSender;
 import org.bukkit.conversations.Conversation;
@@ -23,6 +23,7 @@ import net.citizensnpcs.api.ai.speech.SpeechContext;
 import net.citizensnpcs.api.event.NPCRightClickEvent;
 import net.citizensnpcs.api.persistence.Persist;
 import net.citizensnpcs.api.trait.Trait;
+import net.citizensnpcs.api.trait.TraitEventHandler;
 import net.citizensnpcs.api.trait.TraitName;
 import net.citizensnpcs.api.util.DataKey;
 import net.citizensnpcs.api.util.Messaging;
@@ -49,6 +50,8 @@ public class Text extends Trait implements Runnable, Listener {
     private double range = Setting.DEFAULT_TALK_CLOSE_RANGE.asDouble();
     @Persist(value = "realistic-looking")
     private boolean realisticLooker = Setting.DEFAULT_REALISTIC_LOOKING.asBoolean();
+    @Persist(value = "send-text-to-chat")
+    private boolean sendTextToChat = true;
     @Persist(value = "speech-bubble-duration")
     private int speechBubbleDuration = Setting.DEFAULT_TEXT_SPEECH_BUBBLE_DURATION.asTicks();
     @Persist(value = "speech-bubbles")
@@ -56,7 +59,7 @@ public class Text extends Trait implements Runnable, Listener {
     @Persist(value = "talk-close")
     private boolean talkClose = Setting.DEFAULT_TALK_CLOSE.asBoolean();
     @Persist
-    private volatile List<String> text = new ArrayList<>();
+    private final List<String> text = new ArrayList<>();
 
     public Text() {
         super("text");
@@ -141,9 +144,9 @@ public class Text extends Trait implements Runnable, Listener {
         range = key.getDouble("range", Setting.DEFAULT_TALK_CLOSE_RANGE.asDouble());
     }
 
-    @EventHandler
+    @TraitEventHandler(@EventHandler)
     private void onRightClick(NPCRightClickEvent event) {
-        if (!event.getNPC().equals(npc) || text.size() == 0)
+        if (text.size() == 0)
             return;
         String localPattern = "default".equals(itemInHandPattern) ? Setting.TALK_ITEM.asString() : itemInHandPattern;
         if (Util.matchesItemInHand(event.getClicker(), localPattern) && !shouldTalkClose()) {
@@ -209,10 +212,19 @@ public class Text extends Trait implements Runnable, Listener {
         }
         if (speechBubbles) {
             HologramTrait trait = npc.getOrAddTrait(HologramTrait.class);
-            trait.addTemporaryLine(Placeholders.replace(text.get(index), player, npc), speechBubbleDuration);
+            String replaced = Placeholders.replace(text.get(index), player, npc);
+            for (String line : NEWLINE_PATTERN.split(replaced)) {
+                trait.addTemporaryLine(line, speechBubbleDuration);
+            }
         }
-        npc.getDefaultSpeechController().speak(new SpeechContext(text.get(index), player));
+        if (sendTextToChat) {
+            npc.getDefaultSpeechController().speak(new SpeechContext(text.get(index), player));
+        }
         return true;
+    }
+
+    public boolean sendTextToChat() {
+        return sendTextToChat;
     }
 
     /**
@@ -245,7 +257,7 @@ public class Text extends Trait implements Runnable, Listener {
     }
 
     public void setSpeechBubbleDuration(Duration duration) {
-        this.speechBubbleDuration = (int) (duration.get(ChronoUnit.MILLIS) / 50);
+        this.speechBubbleDuration = Util.toTicks(duration);
     }
 
     /**
@@ -289,6 +301,13 @@ public class Text extends Trait implements Runnable, Listener {
     }
 
     /**
+     * Toggles sending text through chat
+     */
+    public boolean toggleSendTextToChat() {
+        return sendTextToChat = !sendTextToChat;
+    }
+
+    /**
      * Toggles using speech bubbles instead of messages.
      */
     public boolean toggleSpeechBubbles() {
@@ -310,5 +329,6 @@ public class Text extends Trait implements Runnable, Listener {
         return speechBubbles;
     }
 
+    private static final Pattern NEWLINE_PATTERN = Pattern.compile("<br>|\\n");
     private static final Random RANDOM = Util.getFastRandom();
 }

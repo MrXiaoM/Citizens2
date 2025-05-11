@@ -76,6 +76,7 @@ import net.citizensnpcs.api.ai.event.CancelReason;
 import net.citizensnpcs.api.astar.pathfinder.DoorExaminer;
 import net.citizensnpcs.api.command.CommandManager;
 import net.citizensnpcs.api.command.exception.CommandException;
+import net.citizensnpcs.api.event.NPCMoveEvent;
 import net.citizensnpcs.api.gui.ForwardingInventory;
 import net.citizensnpcs.api.npc.BlockBreaker;
 import net.citizensnpcs.api.npc.BlockBreaker.BlockBreakerConfiguration;
@@ -143,6 +144,7 @@ import net.citizensnpcs.nms.v1_10_R1.entity.nonliving.MinecartCommandController;
 import net.citizensnpcs.nms.v1_10_R1.entity.nonliving.MinecartFurnaceController;
 import net.citizensnpcs.nms.v1_10_R1.entity.nonliving.MinecartHopperController;
 import net.citizensnpcs.nms.v1_10_R1.entity.nonliving.MinecartRideableController;
+import net.citizensnpcs.nms.v1_10_R1.entity.nonliving.MinecartSpawnerController;
 import net.citizensnpcs.nms.v1_10_R1.entity.nonliving.MinecartTNTController;
 import net.citizensnpcs.nms.v1_10_R1.entity.nonliving.PaintingController;
 import net.citizensnpcs.nms.v1_10_R1.entity.nonliving.ShulkerBulletController;
@@ -159,6 +161,8 @@ import net.citizensnpcs.npc.ai.MCNavigationStrategy.MCNavigator;
 import net.citizensnpcs.npc.ai.MCTargetStrategy.TargetNavigator;
 import net.citizensnpcs.npc.ai.NPCHolder;
 import net.citizensnpcs.trait.RotationTrait;
+import net.citizensnpcs.trait.versioned.AreaEffectCloudTrait;
+import net.citizensnpcs.trait.versioned.BoatTrait;
 import net.citizensnpcs.trait.versioned.BossBarTrait;
 import net.citizensnpcs.trait.versioned.EnderDragonTrait;
 import net.citizensnpcs.trait.versioned.PolarBearTrait;
@@ -189,6 +193,8 @@ import net.minecraft.server.v1_10_R1.CrashReport;
 import net.minecraft.server.v1_10_R1.CrashReportSystemDetails;
 import net.minecraft.server.v1_10_R1.DamageSource;
 import net.minecraft.server.v1_10_R1.DataWatcherObject;
+import net.minecraft.server.v1_10_R1.DedicatedPlayerList;
+import net.minecraft.server.v1_10_R1.DedicatedServer;
 import net.minecraft.server.v1_10_R1.EnchantmentManager;
 import net.minecraft.server.v1_10_R1.EnderDragonBattle;
 import net.minecraft.server.v1_10_R1.Entity;
@@ -220,6 +226,8 @@ import net.minecraft.server.v1_10_R1.Navigation;
 import net.minecraft.server.v1_10_R1.NavigationAbstract;
 import net.minecraft.server.v1_10_R1.NavigationSpider;
 import net.minecraft.server.v1_10_R1.NetworkManager;
+import net.minecraft.server.v1_10_R1.OpList;
+import net.minecraft.server.v1_10_R1.OpListEntry;
 import net.minecraft.server.v1_10_R1.Packet;
 import net.minecraft.server.v1_10_R1.PacketPlayOutAnimation;
 import net.minecraft.server.v1_10_R1.PacketPlayOutBed;
@@ -310,6 +318,13 @@ public class NMSImpl implements NMSBridge {
         } else if (handle instanceof EntityHumanNPC) {
             ((EntityHumanNPC) handle).getControllerMove().f = false;
         }
+    }
+
+    @Override
+    public boolean canNavigateTo(final org.bukkit.entity.Entity entity, final Location dest,
+            final NavigatorParameters params) {
+        final NavigationAbstract navigation = getNavigation(entity);
+        return navigation.a(dest.getX(), dest.getY(), dest.getZ()) != null;
     }
 
     @Override
@@ -457,9 +472,24 @@ public class NMSImpl implements NMSBridge {
         Entity handle = getHandle(entity);
         ControllerMove controller = handle instanceof EntityInsentient ? ((EntityInsentient) handle).getControllerMove()
                 : handle instanceof EntityHumanNPC ? ((EntityHumanNPC) handle).getControllerMove() : null;
-        if (controller == null || !controller.a())
+        if (controller == null)
             return null;
-        return new Location(entity.getWorld(), controller.d(), controller.e(), controller.f());
+        if (controller.a())
+            return new Location(entity.getWorld(), controller.d(), controller.e(), controller.f());
+        NavigationAbstract nav = handle instanceof EntityInsentient ? ((EntityInsentient) handle).getNavigation()
+                : handle instanceof EntityHumanNPC ? ((EntityHumanNPC) handle).getNavigation() : null;
+        if (isNavigationFinished(nav))
+            return null;
+        Vec3D vec = nav.k().a(handle);
+        return new Location(entity.getWorld(), vec.x, vec.y, vec.z);
+    }
+
+    @Override
+    public float getForwardBackwardMovement(org.bukkit.entity.Entity entity) {
+        if (!entity.getType().isAlive())
+            return Float.NaN;
+        EntityLiving handle = NMSImpl.getHandle((LivingEntity) entity);
+        return handle.bg;
     }
 
     @Override
@@ -472,20 +502,6 @@ public class NMSImpl implements NMSBridge {
         if (!(entity instanceof LivingEntity))
             return entity.getLocation().getYaw();
         return getHandle((LivingEntity) entity).aQ;
-    }
-
-    @Override
-    public float getHorizontalMovement(org.bukkit.entity.Entity entity) {
-        if (!entity.getType().isAlive())
-            return Float.NaN;
-        EntityLiving handle = NMSImpl.getHandle((LivingEntity) entity);
-        return handle.bg;
-    }
-
-    @Override
-    public NPC getNPC(org.bukkit.entity.Entity entity) {
-        Entity handle = getHandle(entity);
-        return handle instanceof NPCHolder ? ((NPCHolder) handle).getNPC() : null;
     }
 
     @Override
@@ -570,10 +586,9 @@ public class NMSImpl implements NMSBridge {
             return DEFAULT_SPEED;
         EntityLiving handle = NMSImpl.getHandle((LivingEntity) npc.getEntity());
         if (handle == null) {
+            return DEFAULT_SPEED;
         }
-        return DEFAULT_SPEED;
-        // return (float)
-        // handle.getAttributeInstance(GenericAttributes.d).getValue();
+        return (float) handle.getAttributeInstance(GenericAttributes.MOVEMENT_SPEED).getValue();
     }
 
     @Override
@@ -588,14 +603,14 @@ public class NMSImpl implements NMSBridge {
                 Iterables.transform(dest,
                         input -> new PathPoint(input.getBlockX(), input.getBlockY(), input.getBlockZ())),
                 PathPoint.class));
-        return getTargetNavigator(entity, params, input -> input.a(path, params.speed()));
+        return getTargetNavigator(entity, params, input -> input.a(path, params.speedModifier()));
     }
 
     @Override
     public MCNavigator getTargetNavigator(final org.bukkit.entity.Entity entity, final Location dest,
             final NavigatorParameters params) {
         return getTargetNavigator(entity, params,
-                input -> input.a(dest.getX(), dest.getY(), dest.getZ(), params.speed()));
+                input -> input.a(dest.getX(), dest.getY(), dest.getZ(), params.speedModifier()));
     }
 
     private MCNavigator getTargetNavigator(final org.bukkit.entity.Entity entity, final NavigatorParameters params,
@@ -644,7 +659,7 @@ public class NMSImpl implements NMSBridge {
 
             @Override
             public boolean update() {
-                if (params.speed() != lastSpeed && lastSpeed > 0) {
+                if (params.speedModifier() != lastSpeed && lastSpeed > 0) {
                     Entity handle = getHandle(entity);
                     float oldWidth = handle.width;
                     if (handle instanceof EntityHorse) {
@@ -655,9 +670,9 @@ public class NMSImpl implements NMSBridge {
                     }
                     handle.width = oldWidth; // minecraft requires that an entity fit onto both blocks if width >= 1f,
                                              // but we'd prefer to make it just fit on 1 so hack around it a bit.
-                    lastSpeed = params.speed();
+                    lastSpeed = params.speedModifier();
                 }
-                navigation.a(params.speed());
+                navigation.a(params.speedModifier());
                 return NMSImpl.isNavigationFinished(navigation);
             }
         };
@@ -680,14 +695,6 @@ public class NMSImpl implements NMSBridge {
     }
 
     @Override
-    public float getVerticalMovement(org.bukkit.entity.Entity entity) {
-        if (!entity.getType().isAlive())
-            return Float.NaN;
-        EntityLiving handle = NMSImpl.getHandle((LivingEntity) entity);
-        return handle.bf;
-    }
-
-    @Override
     public Collection<org.bukkit.entity.Player> getViewingPlayers(org.bukkit.entity.Entity entity) {
         WorldServer server = (WorldServer) NMSImpl.getHandle(entity).getWorld();
         EntityTrackerEntry entry = server.getTracker().trackedEntities.get(entity.getEntityId());
@@ -697,6 +704,14 @@ public class NMSImpl implements NMSBridge {
     @Override
     public double getWidth(org.bukkit.entity.Entity entity) {
         return getHandle(entity).width;
+    }
+
+    @Override
+    public float getXZMovement(org.bukkit.entity.Entity entity) {
+        if (!entity.getType().isAlive())
+            return Float.NaN;
+        EntityLiving handle = NMSImpl.getHandle((LivingEntity) entity);
+        return handle.bf;
     }
 
     @Override
@@ -722,6 +737,8 @@ public class NMSImpl implements NMSBridge {
 
     @Override
     public void load(CommandManager manager) {
+        registerTraitWithCommand(manager, BoatTrait.class);
+        registerTraitWithCommand(manager, AreaEffectCloudTrait.class);
         registerTraitWithCommand(manager, EnderDragonTrait.class);
         registerTraitWithCommand(manager, BossBarTrait.class);
         registerTraitWithCommand(manager, PolarBearTrait.class);
@@ -768,6 +785,7 @@ public class NMSImpl implements NMSBridge {
         EntityControllers.setEntityControllerForType(EntityType.MINECART_FURNACE, MinecartFurnaceController.class);
         EntityControllers.setEntityControllerForType(EntityType.MINECART_HOPPER, MinecartHopperController.class);
         EntityControllers.setEntityControllerForType(EntityType.MINECART_TNT, MinecartTNTController.class);
+        EntityControllers.setEntityControllerForType(EntityType.MINECART_MOB_SPAWNER, MinecartSpawnerController.class);
         EntityControllers.setEntityControllerForType(EntityType.MUSHROOM_COW, MushroomCowController.class);
         EntityControllers.setEntityControllerForType(EntityType.OCELOT, OcelotController.class);
         EntityControllers.setEntityControllerForType(EntityType.PAINTING, PaintingController.class);
@@ -790,7 +808,7 @@ public class NMSImpl implements NMSBridge {
         EntityControllers.setEntityControllerForType(EntityType.SPLASH_POTION, ThrownPotionController.class);
         EntityControllers.setEntityControllerForType(EntityType.SQUID, SquidController.class);
         EntityControllers.setEntityControllerForType(EntityType.EXPERIENCE_ORB, ExperienceOrbController.class);
-        EntityControllers.setEntityControllerForType(EntityType.TIPPED_ARROW, TippedArrowController.class);
+        EntityControllers.setEntityControllerForType(EntityType.SPECTRAL_ARROW, SpectralArrowController.class);
         EntityControllers.setEntityControllerForType(EntityType.THROWN_EXP_BOTTLE, ThrownExpBottleController.class);
         EntityControllers.setEntityControllerForType(EntityType.PRIMED_TNT, TNTPrimedController.class);
         EntityControllers.setEntityControllerForType(EntityType.VILLAGER, VillagerController.class);
@@ -989,7 +1007,7 @@ public class NMSImpl implements NMSBridge {
     }
 
     @Override
-    public void registerEntityClass(Class<?> clazz) {
+    public void registerEntityClass(Class<?> clazz, Object raw) {
         if (ENTITY_CLASS_TO_INT == null || ENTITY_CLASS_TO_INT.containsKey(clazz))
             return;
         Class<?> search = clazz;
@@ -1245,6 +1263,23 @@ public class NMSImpl implements NMSBridge {
     @Override
     public void setNoGravity(org.bukkit.entity.Entity entity, boolean enabled) {
         getHandle(entity).setNoGravity(enabled);
+    }
+
+    @Override
+    public void setOpWithoutSaving(Player player, boolean op) {
+        if (player.isOp() == op)
+            return;
+        final GameProfile profile = ((CraftPlayer) player).getProfile();
+        final DedicatedPlayerList playerList = ((CraftServer) player.getServer()).getHandle();
+        final DedicatedServer server = playerList.getServer();
+        final OpList opList = playerList.getOPs();
+        if (op) {
+            opList.add(new OpListEntry(profile, server.getPropertyManager().getInt("op-permission-level", 4),
+                    opList.b(profile)));
+        } else {
+            opList.remove(profile);
+        }
+        player.recalculatePermissions();
     }
 
     @Override
@@ -1514,7 +1549,7 @@ public class NMSImpl implements NMSBridge {
             Location location = parameters.entityTargetLocationMapper().apply(target);
             if (location == null)
                 throw new IllegalStateException("mapper should not return null");
-            navigation.a(location.getX(), location.getY(), location.getZ(), parameters.speed());
+            navigation.a(location.getX(), location.getY(), location.getZ(), parameters.speedModifier());
         }
 
         @Override
@@ -1559,6 +1594,29 @@ public class NMSImpl implements NMSBridge {
                     throw new UnsupportedOperationException();
                 }
             };
+        }
+    }
+
+    public static <T extends Entity & NPCHolder> void callNPCMoveEvent(T what) {
+        final NPC npc = what.getNPC();
+        if (npc != null && NPCMoveEvent.getHandlerList().getRegisteredListeners().length > 0) {
+            if (what.lastX != what.locX || what.lastY != what.locY || what.lastZ != what.locZ
+                    || what.lastYaw != what.yaw || what.lastPitch != what.pitch) {
+                Location from = new Location(what.world.getWorld(), what.lastX, what.lastY, what.lastZ, what.lastYaw,
+                        what.lastPitch);
+                Location to = new Location(what.world.getWorld(), what.locX, what.locY, what.locZ, what.yaw,
+                        what.pitch);
+                final NPCMoveEvent event = new NPCMoveEvent(npc, from, to.clone());
+                Bukkit.getPluginManager().callEvent(event);
+                if (event.isCancelled()) {
+                    final Location eventFrom = event.getFrom();
+                    what.setLocation(eventFrom.getX(), eventFrom.getY(), eventFrom.getZ(), eventFrom.getYaw(),
+                            eventFrom.getPitch());
+                } else if (!to.equals(event.getTo())) {
+                    what.setLocation(event.getTo().getX(), event.getTo().getY(), event.getTo().getZ(),
+                            event.getTo().getYaw(), event.getTo().getPitch());
+                }
+            }
         }
     }
 
@@ -1810,12 +1868,11 @@ public class NMSImpl implements NMSBridge {
         NPC npc = ((NPCHolder) minecart).getNPC();
         if (npc == null)
             return;
-        Material mat = Material.getMaterial(npc.data().get(NPC.Metadata.MINECART_ITEM, ""));
-        int data = npc.data().get(NPC.Metadata.MINECART_ITEM_DATA, 0);
         int offset = npc.data().get(NPC.Metadata.MINECART_OFFSET, 0);
-        minecart.a(mat != null);
-        if (mat != null) {
-            minecart.setDisplayBlock(Block.getById(mat.getId()).fromLegacyData(data));
+        minecart.a(npc.data().has(NPC.Metadata.ITEM_ID));
+        if (npc.data().has(NPC.Metadata.ITEM_ID)) {
+            Material mat = npc.getItemProvider().get().getType();
+            minecart.setDisplayBlock(Block.getById(mat.getId()).fromLegacyData(0));
         }
         minecart.setDisplayBlockOffset(offset);
     }

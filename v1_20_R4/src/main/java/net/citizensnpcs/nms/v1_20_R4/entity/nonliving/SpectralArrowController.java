@@ -34,16 +34,11 @@ public class SpectralArrowController extends MobEntityController {
     }
 
     @Override
-    public Arrow getBukkitEntity() {
-        return (Arrow) super.getBukkitEntity();
+    public org.bukkit.entity.SpectralArrow getBukkitEntity() {
+        return (org.bukkit.entity.SpectralArrow) super.getBukkitEntity();
     }
 
     public static class EntitySpectralArrowNPC extends SpectralArrow implements NPCHolder {
-        @Override
-        public boolean broadcastToPlayer(ServerPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntitySpectralArrowNPC(EntityType<? extends SpectralArrow> types, Level level) {
@@ -53,6 +48,11 @@ public class SpectralArrowController extends MobEntityController {
         public EntitySpectralArrowNPC(EntityType<? extends SpectralArrow> types, Level level, NPC npc) {
             super(types, level);
             this.npc = (CitizensNPC) npc;
+        }
+
+        @Override
+        public boolean broadcastToPlayer(ServerPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
         }
 
         @Override

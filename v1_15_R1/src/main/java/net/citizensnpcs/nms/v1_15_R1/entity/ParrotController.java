@@ -16,6 +16,7 @@ import net.citizensnpcs.npc.ai.NPCHolder;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
 import net.minecraft.server.v1_15_R1.AxisAlignedBB;
+import net.minecraft.server.v1_15_R1.ControllerMoveFlying;
 import net.minecraft.server.v1_15_R1.DamageSource;
 import net.minecraft.server.v1_15_R1.Entity;
 import net.minecraft.server.v1_15_R1.EntityBoat;
@@ -44,11 +45,6 @@ public class ParrotController extends MobEntityController {
     }
 
     public static class EntityParrotNPC extends EntityParrot implements NPCHolder {
-        @Override
-        public boolean a(EntityPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityParrotNPC(EntityTypes<? extends EntityParrot> types, World world) {
@@ -58,6 +54,9 @@ public class ParrotController extends MobEntityController {
         public EntityParrotNPC(EntityTypes<? extends EntityParrot> types, World world, NPC npc) {
             super(types, world);
             this.npc = (CitizensNPC) npc;
+            if (npc != null) {
+                this.moveController = new ControllerMoveFlying(this, 10, true);
+            }
         }
 
         @Override
@@ -77,6 +76,11 @@ public class ParrotController extends MobEntityController {
             if (npc == null || !npc.isProtected())
                 return super.a(paramEntityHuman, paramEnumHand);
             return false;
+        }
+
+        @Override
+        public boolean a(EntityPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
         }
 
         @Override

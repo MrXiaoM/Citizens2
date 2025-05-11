@@ -37,11 +37,6 @@ public class TNTPrimedController extends MobEntityController {
     }
 
     public static class EntityTNTPrimedNPC extends EntityTNTPrimed implements NPCHolder {
-        @Override
-        public boolean a(EntityPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityTNTPrimedNPC(EntityTypes<? extends EntityTNTPrimed> types, World world) {
@@ -56,6 +51,11 @@ public class TNTPrimedController extends MobEntityController {
         @Override
         public void a(AxisAlignedBB bb) {
             super.a(NMSBoundingBox.makeBB(npc, bb));
+        }
+
+        @Override
+        public boolean a(EntityPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
         }
 
         @Override
@@ -111,9 +111,15 @@ public class TNTPrimedController extends MobEntityController {
             return Util.callPistonPushEvent(npc) ? EnumPistonReaction.IGNORE : super.getPushReaction();
         }
 
+        private int fuseRenewalDelay = 9;
         @Override
         public void tick() {
             if (npc != null) {
+                if (fuseRenewalDelay-- <= 0) {
+                    setFuseTicks(Integer.MAX_VALUE - 1);
+                    setFuseTicks(Integer.MAX_VALUE);
+                    fuseRenewalDelay = 9;
+                }
                 npc.update();
             } else {
                 super.tick();

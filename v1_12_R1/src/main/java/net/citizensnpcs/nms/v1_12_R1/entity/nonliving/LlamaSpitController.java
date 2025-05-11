@@ -27,9 +27,6 @@ import net.minecraft.server.v1_12_R1.World;
 import net.minecraft.server.v1_12_R1.WorldServer;
 
 public class LlamaSpitController extends AbstractEntityController {
-    public LlamaSpitController() {
-        super(EntityLlamaSpitNPC.class);
-    }
 
     @Override
     protected Entity createEntity(Location at, NPC npc) {
@@ -45,11 +42,6 @@ public class LlamaSpitController extends AbstractEntityController {
     }
 
     public static class EntityLlamaSpitNPC extends EntityLlamaSpit implements NPCHolder {
-        @Override
-        public boolean a(EntityPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityLlamaSpitNPC(World world) {
@@ -69,6 +61,11 @@ public class LlamaSpitController extends AbstractEntityController {
         @Override
         public void a(AxisAlignedBB bb) {
             super.a(NMSBoundingBox.makeBB(npc, bb));
+        }
+
+        @Override
+        public boolean a(EntityPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
         }
 
         @Override

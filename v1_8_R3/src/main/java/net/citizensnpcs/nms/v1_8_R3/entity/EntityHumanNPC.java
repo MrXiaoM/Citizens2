@@ -101,8 +101,18 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
     }
 
     @Override
+    public int aE() {
+        return NMS.getFallDistance(npc, super.aE());
+    }
+
+    @Override
     public boolean aL() {
         return npc == null ? super.aL() : npc.isPushableByFluids();
+    }
+
+    @Override
+    public float bE() {
+        return NMS.getJumpPower(npc, super.bE());
     }
 
     @Override
@@ -241,8 +251,6 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
         controllerJump = new PlayerControllerJump(this);
         controllerMove = new PlayerControllerMove(this);
         navigation = new PlayerNavigation(this, world);
-        invulnerableTicks = 0;
-        NMS.setStepHeight(getBukkitEntity(), 1); // the default (0) breaks step climbing setSkinFlags((byte) 0xFF);
     }
 
     public boolean isNavigating() {
@@ -263,6 +271,7 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
             super.l();
             return;
         }
+        NMSImpl.callNPCMoveEvent(this);
         super.K();
         boolean navigating = npc.getNavigator().isNavigating() || controllerMove.a();
         if (!navigating && getBukkitEntity() != null

@@ -18,11 +18,12 @@ import java.util.stream.Collectors;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Registry;
 import org.bukkit.Sound;
 import org.bukkit.attribute.Attributable;
-import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.command.BlockCommandSender;
 import org.bukkit.entity.Enderman;
 import org.bukkit.entity.Entity;
@@ -36,6 +37,7 @@ import org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.scoreboard.Team;
 import org.bukkit.util.Vector;
@@ -46,7 +48,6 @@ import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.GameProfileRepository;
 import com.mojang.authlib.ProfileLookupCallback;
 
-import net.citizensnpcs.Settings.Setting;
 import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.ai.NavigatorParameters;
 import net.citizensnpcs.api.astar.pathfinder.SwimmingExaminer;
@@ -126,9 +127,9 @@ public class NMS {
             Consumer<NPCKnockbackEvent> cb) {
         if (npc.getEntity() == null)
             return;
-        if (SUPPORT_KNOCKBACK_RESISTANCE && npc.getEntity() instanceof Attributable) {
-            AttributeInstance attribute = ((Attributable) npc.getEntity())
-                    .getAttribute(Attribute.GENERIC_KNOCKBACK_RESISTANCE);
+        if (SUPPORTS_ATTRIBUTABLE && npc.getEntity() instanceof Attributable) {
+            AttributeInstance attribute = ((Attributable) npc.getEntity()).getAttribute(
+                    Util.getRegistryValue(Registry.ATTRIBUTE, "generic.knockback_resistance", "knockback_resistance"));
             if (attribute != null) {
                 strength *= 1 - attribute.getValue();
             }
@@ -151,6 +152,31 @@ public class NMS {
 
     public static void cancelMoveDestination(Entity entity) {
         BRIDGE.cancelMoveDestination(entity);
+    }
+
+    public static boolean canNavigateTo(Entity entity, Location dest, NavigatorParameters params) {
+        return BRIDGE.canNavigateTo(entity, dest, params);
+    }
+
+    public static void clearCustomNBT(ItemMeta meta) {
+        if (CUSTOM_NBT_TAG_MISSING)
+            return;
+        if (CUSTOM_NBT_TAG == null) {
+            Class<?> clazz = meta.getClass();
+            while (!clazz.getName().contains("CraftMetaItem")) {
+                clazz = clazz.getSuperclass();
+            }
+            CUSTOM_NBT_TAG = getSetter(clazz, "customTag");
+            if (CUSTOM_NBT_TAG == null) {
+                CUSTOM_NBT_TAG_MISSING = true;
+                return;
+            }
+        }
+        try {
+            CUSTOM_NBT_TAG.invoke(meta, null);
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
     }
 
     public static Iterable<Object> createBundlePacket(List<Object> packets) {
@@ -220,6 +246,10 @@ public class NMS {
         return BRIDGE.getCollisionBox(block).add(block.getX(), block.getY(), block.getZ());
     }
 
+    public static BoundingBox getCollisionBox(BlockData blockdata) {
+        return BRIDGE.getCollisionBox(blockdata);
+    }
+
     public static Map<String, Object> getComponentMap(ItemStack item) {
         return BRIDGE.getComponentMap(item);
     }
@@ -229,10 +259,8 @@ public class NMS {
     }
 
     public static int getFallDistance(NPC npc, int def) {
-        return npc == null ? def
-                : npc.data().get(NPC.Metadata.PATHFINDER_FALL_DISTANCE,
-                        Setting.PATHFINDER_FALL_DISTANCE.asInt() != -1 ? Setting.PATHFINDER_FALL_DISTANCE.asInt()
-                                : def);
+        return npc == null || npc.getNavigator().getLocalParameters().fallDistance() == -1 ? def
+                : npc.getNavigator().getLocalParameters().fallDistance();
     }
 
     public static Field getField(Class<?> clazz, String field) {
@@ -249,7 +277,7 @@ public class NMS {
             return f;
         } catch (Exception e) {
             if (log) {
-                Messaging.logTr(Messages.ERROR_GETTING_FIELD, field, e.getLocalizedMessage());
+                Messaging.severeTr(Messages.ERROR_GETTING_FIELD, field, e.getLocalizedMessage());
                 if (Messaging.isDebugging()) {
                     e.printStackTrace();
                 }
@@ -298,13 +326,16 @@ public class NMS {
         if (field == null)
             return null;
         if (MODIFIERS_FIELD == null) {
-            if (UNSAFE == null) {
+            if (UNSAFE_STATIC_FIELD_OFFSET == null) {
+                Object UNSAFE;
                 try {
                     UNSAFE = NMS.getField(Class.forName("sun.misc.Unsafe"), "theUnsafe").get(null);
                 } catch (Exception e) {
-                    e.printStackTrace();
                     if (log) {
-                        Messaging.logTr(Messages.ERROR_GETTING_FIELD, field.getName(), e.getLocalizedMessage());
+                        Messaging.severeTr(Messages.ERROR_GETTING_FIELD, field.getName(), e.getLocalizedMessage());
+                        if (Messaging.isDebugging()) {
+                            e.printStackTrace();
+                        }
                     }
                     return null;
                 }
@@ -337,9 +368,11 @@ public class NMS {
                 return isStatic ? MethodHandles.insertArguments(mh, 0, field.getDeclaringClass(), offset)
                         : MethodHandles.insertArguments(mh, 1, offset);
             } catch (Throwable t) {
-                t.printStackTrace();
                 if (log) {
-                    Messaging.logTr(Messages.ERROR_GETTING_FIELD, field.getName(), t.getLocalizedMessage());
+                    Messaging.severeTr(Messages.ERROR_GETTING_FIELD, field.getName(), t.getLocalizedMessage());
+                    if (Messaging.isDebugging()) {
+                        t.printStackTrace();
+                    }
                 }
                 return null;
             }
@@ -348,7 +381,7 @@ public class NMS {
             MODIFIERS_FIELD.setInt(field, field.getModifiers() & ~Modifier.FINAL);
         } catch (Exception e) {
             if (log) {
-                Messaging.logTr(Messages.ERROR_GETTING_FIELD, field.getName(), e.getLocalizedMessage());
+                Messaging.severeTr(Messages.ERROR_GETTING_FIELD, field.getName(), e.getLocalizedMessage());
                 if (Messaging.isDebugging()) {
                     e.printStackTrace();
                 }
@@ -359,7 +392,7 @@ public class NMS {
             return LOOKUP.unreflectSetter(field);
         } catch (Exception e) {
             if (log) {
-                Messaging.logTr(Messages.ERROR_GETTING_FIELD, field.getName(), e.getLocalizedMessage());
+                Messaging.severeTr(Messages.ERROR_GETTING_FIELD, field.getName(), e.getLocalizedMessage());
                 if (Messaging.isDebugging()) {
                     e.printStackTrace();
                 }
@@ -375,7 +408,10 @@ public class NMS {
                 return null;
             return getFinalSetter(found.get(0), true);
         } catch (Exception e) {
-            Messaging.logTr(Messages.ERROR_GETTING_FIELD, type, e.getLocalizedMessage());
+            Messaging.severeTr(Messages.ERROR_GETTING_FIELD, type, e.getLocalizedMessage());
+            if (Messaging.isDebugging()) {
+                e.printStackTrace();
+            }
         }
         return null;
     }
@@ -387,7 +423,10 @@ public class NMS {
                 return null;
             return LOOKUP.unreflectGetter(found.get(0));
         } catch (Exception e) {
-            Messaging.logTr(Messages.ERROR_GETTING_FIELD, type, e.getLocalizedMessage());
+            Messaging.severeTr(Messages.ERROR_GETTING_FIELD, type, e.getLocalizedMessage());
+            if (Messaging.isDebugging()) {
+                e.printStackTrace();
+            }
         }
         return null;
     }
@@ -426,7 +465,7 @@ public class NMS {
             return LOOKUP.unreflect(first);
         } catch (Exception e) {
             if (log) {
-                Messaging.logTr(Messages.ERROR_GETTING_METHOD, e.getLocalizedMessage());
+                Messaging.severeTr(Messages.ERROR_GETTING_METHOD, e.getLocalizedMessage());
                 if (Messaging.isDebugging()) {
                     e.printStackTrace();
                 }
@@ -442,7 +481,7 @@ public class NMS {
                 return null;
             return LOOKUP.unreflectSetter(found.get(0));
         } catch (Exception e) {
-            Messaging.logTr(Messages.ERROR_GETTING_FIELD, type, e.getLocalizedMessage());
+            Messaging.severeTr(Messages.ERROR_GETTING_FIELD, type, e.getLocalizedMessage());
         }
         return null;
     }
@@ -454,9 +493,22 @@ public class NMS {
                 return null;
             return LOOKUP.unreflectGetter(found.get(0));
         } catch (Exception e) {
-            Messaging.logTr(Messages.ERROR_GETTING_FIELD, type, e.getLocalizedMessage());
+            Messaging.severeTr(Messages.ERROR_GETTING_FIELD, type, e.getLocalizedMessage());
         }
         return null;
+    }
+
+    public static <T> T getFirstStaticObject(Class<?> clazz, Class<?> type) {
+        try {
+            return (T) getFirstStaticGetter(clazz, type).invoke();
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public static float getForwardBackwardMovement(org.bukkit.entity.Entity bukkitEntity) {
+        return BRIDGE.getForwardBackwardMovement(bukkitEntity);
     }
 
     public static MethodHandle getGetter(Class<?> clazz, String name) {
@@ -468,7 +520,7 @@ public class NMS {
             return LOOKUP.unreflectGetter(getField(clazz, name, log));
         } catch (Exception e) {
             if (log) {
-                Messaging.logTr(Messages.ERROR_GETTING_FIELD, name, e.getLocalizedMessage());
+                Messaging.severeTr(Messages.ERROR_GETTING_FIELD, name, e.getLocalizedMessage());
                 if (Messaging.isDebugging()) {
                     e.printStackTrace();
                 }
@@ -481,10 +533,6 @@ public class NMS {
         return BRIDGE.getHeadYaw(entity);
     }
 
-    public static float getHorizontalMovement(org.bukkit.entity.Entity bukkitEntity) {
-        return BRIDGE.getHorizontalMovement(bukkitEntity);
-    }
-
     public static float getJumpPower(NPC npc, float original) {
         if (npc == null)
             return original;
@@ -494,32 +542,16 @@ public class NMS {
         return original;
     }
 
-    public static Method getMethod(Class<?> clazz, String method, boolean log, Class<?>... params) {
-        if (clazz == null)
-            return null;
-        Method f = null;
-        try {
-            f = clazz.getDeclaredMethod(method, params);
-            f.setAccessible(true);
-        } catch (Exception e) {
-            if (log) {
-                Messaging.logTr(Messages.ERROR_GETTING_METHOD, method, e.getLocalizedMessage());
-                if (Messaging.isDebugging()) {
-                    e.printStackTrace();
-                }
-            }
-        }
-        return f;
-    }
-
     public static MethodHandle getMethodHandle(Class<?> clazz, String method, boolean log, Class<?>... params) {
         if (clazz == null)
             return null;
         try {
-            return LOOKUP.unreflect(getMethod(clazz, method, log, params));
+            Method m = clazz.getDeclaredMethod(method, params);
+            m.setAccessible(true);
+            return LOOKUP.unreflect(m);
         } catch (Exception e) {
             if (log) {
-                Messaging.logTr(Messages.ERROR_GETTING_METHOD, method, e.getLocalizedMessage());
+                Messaging.severeTr(Messages.ERROR_GETTING_METHOD, method, e.getLocalizedMessage());
                 if (Messaging.isDebugging()) {
                     e.printStackTrace();
                 }
@@ -534,10 +566,6 @@ public class NMS {
 
     private static Collection<Player> getNearbyPlayers(Entity from, Location location, double radius) {
         return Lists.newArrayList(CitizensAPI.getLocationLookup().getNearbyVisiblePlayers(from, location, radius));
-    }
-
-    public static NPC getNPC(Entity entity) {
-        return BRIDGE.getNPC(entity);
     }
 
     public static EntityPacketTracker getPacketTracker(Entity entity) {
@@ -582,7 +610,7 @@ public class NMS {
             return LOOKUP.unreflectSetter(getField(clazz, name, log));
         } catch (Exception e) {
             if (log) {
-                Messaging.logTr(Messages.ERROR_GETTING_FIELD, name, e.getLocalizedMessage());
+                Messaging.severeTr(Messages.ERROR_GETTING_FIELD, name, e.getLocalizedMessage());
                 if (Messaging.isDebugging()) {
                     e.printStackTrace();
                 }
@@ -617,6 +645,15 @@ public class NMS {
         return BRIDGE.getSpeedFor(npc);
     }
 
+    public static <T> T getStaticObject(Class<?> clazz, String name) {
+        try {
+            return (T) getGetter(clazz, name).invoke();
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
     public static float getStepHeight(org.bukkit.entity.Entity entity) {
         return BRIDGE.getStepHeight(entity);
     }
@@ -638,10 +675,6 @@ public class NMS {
         return BRIDGE.getVehicle(entity);
     }
 
-    public static float getVerticalMovement(org.bukkit.entity.Entity bukkitEntity) {
-        return BRIDGE.getVerticalMovement(bukkitEntity);
-    }
-
     public static Collection<Player> getViewingPlayers(org.bukkit.entity.Entity entity) {
         return BRIDGE.getViewingPlayers(entity);
     }
@@ -650,17 +683,19 @@ public class NMS {
         return BRIDGE.getWidth(entity);
     }
 
+    public static float getXZMovement(org.bukkit.entity.Entity bukkitEntity) {
+        return BRIDGE.getXZMovement(bukkitEntity);
+    }
+
     public static float getYaw(Entity entity) {
         return BRIDGE.getYaw(entity);
     }
 
     public static void giveReflectiveAccess(Class<?> from, Class<?> to) {
         try {
-            if (GET_MODULE == null) {
-                Class<?> module = Class.forName("java.lang.Module");
-                GET_MODULE = Class.class.getMethod("getModule");
-                ADD_OPENS = module.getMethod("addOpens", String.class, module);
-            }
+            Class<?> module = Class.forName("java.lang.Module");
+            Method GET_MODULE = Class.class.getMethod("getModule");
+            Method ADD_OPENS = module.getMethod("addOpens", String.class, module);
             ADD_OPENS.invoke(GET_MODULE.invoke(from), from.getPackage().getName(), GET_MODULE.invoke(to));
         } catch (Exception e) {
         }
@@ -754,8 +789,9 @@ public class NMS {
         BRIDGE.positionInteractionText(player, interaction, mount, height);
     }
 
-    public static void registerEntityClass(Class<?> clazz) {
-        BRIDGE.registerEntityClass(clazz);
+    public static void registerEntityClass(Class<?> clazz, Object type) {
+        // TODO: is this used outside of Citizens? could remove this abstraction
+        BRIDGE.registerEntityClass(clazz, type);
     }
 
     public static void remove(Entity entity) {
@@ -886,6 +922,10 @@ public class NMS {
         BRIDGE.setNoGravity(entity, nogravity);
     }
 
+    public static void setOpWithoutSaving(Player player, boolean op) {
+        BRIDGE.setOpWithoutSaving(player, op);
+    }
+
     public static void setPandaSitting(Entity entity, boolean sitting) {
         BRIDGE.setPandaSitting(entity, sitting);
     }
@@ -973,6 +1013,7 @@ public class NMS {
         if (BRIDGE != null) {
             BRIDGE.shutdown();
             BRIDGE = null;
+            FIND_PROFILES_BY_NAMES = null;
         }
     }
 
@@ -1000,16 +1041,15 @@ public class NMS {
         BRIDGE.updatePathfindingRange(npc, pathfindingRange);
     }
 
-    private static Method ADD_OPENS;
     private static NMSBridge BRIDGE;
-    private static MethodHandle FIND_PROFILES_BY_NAMES = null;
-    private static Method GET_MODULE;
-    private static MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
+    private static MethodHandle CUSTOM_NBT_TAG;
+    private static boolean CUSTOM_NBT_TAG_MISSING;
+    private static MethodHandle FIND_PROFILES_BY_NAMES;
+    private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
     private static Field MODIFIERS_FIELD;
     private static boolean PAPER_KNOCKBACK_EVENT_EXISTS = true;
-    private static boolean SUPPORT_KNOCKBACK_RESISTANCE = true;
+    private static boolean SUPPORTS_ATTRIBUTABLE = true;
     private static boolean SUPPORTS_FIND_PROFILES_BY_NAME = true;
-    private static Object UNSAFE;
     private static MethodHandle UNSAFE_FIELD_OFFSET;
     private static MethodHandle UNSAFE_PUT_BOOLEAN;
     private static MethodHandle UNSAFE_PUT_DOUBLE;
@@ -1026,9 +1066,9 @@ public class NMS {
             PAPER_KNOCKBACK_EVENT_EXISTS = false;
         }
         try {
-            Class.forName("org.bukkit.attribute.Attribute").getField("GENERIC_KNOCKBACK_RESISTANCE");
-        } catch (Exception e) {
-            SUPPORT_KNOCKBACK_RESISTANCE = false;
+            Class.forName("org.bukkit.attribute.Attributable");
+        } catch (ClassNotFoundException e) {
+            SUPPORTS_ATTRIBUTABLE = false;
         }
         try {
             GameProfileRepository.class.getMethod("findProfilesByNames", String[].class, ProfileLookupCallback.class);

@@ -30,12 +30,12 @@ import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
 
 public class AStarNavigationStrategy extends AbstractPathStrategy {
+    private Location current;
     private final Location destination;
     private final NPC npc;
     private final NavigatorParameters params;
     private Path plan;
     private AStarPlanner planner;
-    private Vector vector;
 
     public AStarNavigationStrategy(NPC npc, Iterable<Vector> path, NavigatorParameters params) {
         super(TargetType.LOCATION);
@@ -56,7 +56,7 @@ public class AStarNavigationStrategy extends AbstractPathStrategy {
 
     @Override
     public Location getCurrentDestination() {
-        return vector != null ? vector.toLocation(npc.getEntity().getWorld()) : destination.clone();
+        return current != null ? current : destination.clone();
     }
 
     @Override
@@ -90,11 +90,11 @@ public class AStarNavigationStrategy extends AbstractPathStrategy {
         }
         if (getCancelReason() != null || plan == null || plan.isComplete())
             return true;
-        if (vector == null) {
-            vector = plan.getCurrentVector();
-        }
         Location loc = npc.getEntity().getLocation();
-        Location dest = Util.getCenterLocation(vector.toLocation(loc.getWorld()).getBlock());
+        if (current == null) {
+            current = plan.getCurrentVector().toLocation(loc.getWorld());
+        }
+        Location dest = plan.isFinalEntry() ? current : Util.getCenterLocation(current.getBlock());
         /* Proper door movement - gets stuck on corners at times
         
         Block block = loc.getWorld().getBlockAt(vector.getBlockX(), vector.getBlockY(), vector.getBlockZ());
@@ -114,16 +114,17 @@ public class AStarNavigationStrategy extends AbstractPathStrategy {
             plan.update(npc);
             if (plan.isComplete())
                 return true;
-            vector = plan.getCurrentVector();
+            current = null;
             return false;
         }
         if (params.debug()) {
             npc.getEntity().getWorld().playEffect(dest, Effect.ENDER_SIGNAL, 0);
         }
         if (npc.getEntity() instanceof LivingEntity && npc.getEntity().getType() != EntityType.ARMOR_STAND) {
-            NMS.setDestination(npc.getEntity(), dest.getX(), dest.getY(), dest.getZ(), params.speed());
+            NMS.setDestination(npc.getEntity(), dest.getX(), dest.getY(), dest.getZ(), params.speedModifier());
         } else {
-            Vector dir = dest.toVector().subtract(npc.getEntity().getLocation().toVector()).normalize().multiply(0.2);
+            Vector dir = dest.toVector().subtract(npc.getEntity().getLocation().toVector()).normalize()
+                    .multiply(0.2 * params.speedModifier());
             boolean liquidOrInLiquid = MinecraftBlockExaminer.isLiquidOrInLiquid(loc.getBlock());
             if (dY >= 1 && xzDistance <= 0.4 || dY >= 0.2 && liquidOrInLiquid) {
                 dir.add(new Vector(0, 0.75, 0));

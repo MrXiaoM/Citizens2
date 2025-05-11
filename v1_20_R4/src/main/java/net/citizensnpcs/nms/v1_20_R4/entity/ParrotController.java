@@ -23,6 +23,7 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.ai.control.FlyingMoveControl;
 import net.minecraft.world.entity.animal.Parrot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
@@ -44,11 +45,6 @@ public class ParrotController extends MobEntityController {
     }
 
     public static class EntityParrotNPC extends Parrot implements NPCHolder {
-        @Override
-        public boolean broadcastToPlayer(ServerPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityParrotNPC(EntityType<? extends Parrot> types, Level level) {
@@ -58,6 +54,14 @@ public class ParrotController extends MobEntityController {
         public EntityParrotNPC(EntityType<? extends Parrot> types, Level level, NPC npc) {
             super(types, level);
             this.npc = (CitizensNPC) npc;
+            if (npc != null) {
+                this.moveControl = new FlyingMoveControl(this, 10, true);
+            }
+        }
+
+        @Override
+        public boolean broadcastToPlayer(ServerPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
         }
 
         @Override

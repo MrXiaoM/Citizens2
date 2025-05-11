@@ -33,15 +33,11 @@ import net.minecraft.server.v1_16_R3.World;
 import net.minecraft.server.v1_16_R3.WorldServer;
 
 public class LlamaSpitController extends AbstractEntityController {
-    public LlamaSpitController() {
-        super(EntityLlamaSpitNPC.class);
-    }
 
     @Override
     protected Entity createEntity(Location at, NPC npc) {
         WorldServer ws = ((CraftWorld) at.getWorld()).getHandle();
-        final EntityLlamaSpitNPC handle = new EntityLlamaSpitNPC(
-                NMSImpl.<EntityLlamaSpit> getEntityType(EntityLlamaSpitNPC.class), ws, npc);
+        final EntityLlamaSpitNPC handle = new EntityLlamaSpitNPC(EntityTypes.LLAMA_SPIT, ws, npc);
         handle.setPositionRotation(at.getX(), at.getY(), at.getZ(), at.getPitch(), at.getYaw());
         return handle.getBukkitEntity();
     }
@@ -52,11 +48,6 @@ public class LlamaSpitController extends AbstractEntityController {
     }
 
     public static class EntityLlamaSpitNPC extends EntityLlamaSpit implements NPCHolder {
-        @Override
-        public boolean a(EntityPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityLlamaSpitNPC(EntityTypes<? extends EntityLlamaSpit> types, World world) {
@@ -76,6 +67,11 @@ public class LlamaSpitController extends AbstractEntityController {
         @Override
         public void a(AxisAlignedBB bb) {
             super.a(NMSBoundingBox.makeBB(npc, bb));
+        }
+
+        @Override
+        public boolean a(EntityPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
         }
 
         @Override

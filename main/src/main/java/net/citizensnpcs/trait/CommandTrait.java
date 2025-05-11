@@ -84,6 +84,8 @@ public class CommandTrait extends Trait {
     private final Map<UUID, PlayerNPCCommand> playerTracking = Maps.newHashMap();
     @Persist
     private final List<String> temporaryPermissions = Lists.newArrayList();
+    @Persist
+    private int temporaryPermissionsDuration;
 
     public CommandTrait() {
         super("commandtrait");
@@ -363,7 +365,12 @@ public class CommandTrait extends Trait {
                                 attachment.setPermission(permission, true);
                             }
                             command.run(npc, player);
-                            attachment.remove();
+                            if (temporaryPermissionsDuration <= 0) {
+                                attachment.remove();
+                            } else {
+                                Bukkit.getScheduler().scheduleSyncDelayedTask(CitizensAPI.getPlugin(),
+                                        () -> attachment.remove());
+                            }
                             return;
                         }
                     }
@@ -481,8 +488,13 @@ public class CommandTrait extends Trait {
     }
 
     public void setTemporaryPermissions(List<String> permissions) {
+        setTemporaryPermissions(permissions, -1);
+    }
+
+    public void setTemporaryPermissions(List<String> permissions, int duration) {
         temporaryPermissions.clear();
         temporaryPermissions.addAll(permissions);
+        temporaryPermissionsDuration = duration;
     }
 
     public enum CommandTraitError {
@@ -589,13 +601,14 @@ public class CommandTrait extends Trait {
         List<ItemStack> itemCost;
         String key;
         int n;
+        boolean npc;
         boolean op;
         List<String> perms;
         boolean player;
 
         public NPCCommand(int id, String command, Hand hand, boolean player, boolean op, int cooldown,
                 List<String> perms, int n, int delay, int globalCooldown, double cost, int experienceCost,
-                List<ItemStack> itemCost) {
+                List<ItemStack> itemCost, boolean npc) {
             this.id = id;
             this.command = command;
             this.hand = hand;
@@ -609,6 +622,7 @@ public class CommandTrait extends Trait {
             this.cost = cost;
             this.experienceCost = experienceCost;
             this.itemCost = itemCost;
+            this.npc = npc;
         }
 
         public String getEncodedKey() {
@@ -618,6 +632,9 @@ public class CommandTrait extends Trait {
         }
 
         public void run(NPC npc, Player clicker) {
+            if (this.npc && npc.getEntity() instanceof Player) {
+                clicker = (Player) npc.getEntity();
+            }
             Util.runCommand(npc, clicker, command, op, player);
         }
     }
@@ -632,6 +649,7 @@ public class CommandTrait extends Trait {
         Hand hand;
         List<ItemStack> itemCost = Lists.newArrayList();
         int n = -1;
+        boolean npc;
         boolean op;
         List<String> perms = Lists.newArrayList();
         boolean player;
@@ -653,7 +671,7 @@ public class CommandTrait extends Trait {
 
         private NPCCommand build(int id) {
             return new NPCCommand(id, command, hand, player, op, cooldown, perms, n, delay, globalCooldown, cost,
-                    experienceCost, itemCost);
+                    experienceCost, itemCost, npc);
         }
 
         public NPCCommandBuilder command(String command) {
@@ -704,6 +722,11 @@ public class CommandTrait extends Trait {
             return this;
         }
 
+        public NPCCommandBuilder npc(boolean npc) {
+            this.npc = npc;
+            return this;
+        }
+
         public NPCCommandBuilder op(boolean op) {
             this.op = op;
             return this;
@@ -734,7 +757,8 @@ public class CommandTrait extends Trait {
             return new NPCCommand(Integer.parseInt(root.name()), root.getString("command"),
                     Hand.valueOf(root.getString("hand")), Boolean.parseBoolean(root.getString("player")),
                     Boolean.parseBoolean(root.getString("op")), root.getInt("cooldown"), perms, root.getInt("n"),
-                    root.getInt("delay"), root.getInt("globalcooldown"), cost, exp, items);
+                    root.getInt("delay"), root.getInt("globalcooldown"), cost, exp, items,
+                    Boolean.parseBoolean(root.getString("npc")));
         }
 
         @Override
@@ -742,6 +766,7 @@ public class CommandTrait extends Trait {
             root.setString("command", instance.command);
             root.setString("hand", instance.hand.name());
             root.setBoolean("player", instance.player);
+            root.setBoolean("npc", instance.npc);
             root.setBoolean("op", instance.op);
             root.setInt("cooldown", instance.cooldown);
             root.setInt("globalcooldown", instance.globalCooldown);

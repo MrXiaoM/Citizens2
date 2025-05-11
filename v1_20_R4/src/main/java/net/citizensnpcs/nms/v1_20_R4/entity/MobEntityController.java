@@ -15,6 +15,7 @@ import net.citizensnpcs.nms.v1_20_R4.util.NMSImpl;
 import net.citizensnpcs.nms.v1_20_R4.util.PitchableLookControl;
 import net.citizensnpcs.npc.AbstractEntityController;
 import net.citizensnpcs.trait.ScoreboardTrait;
+import net.citizensnpcs.util.NMS;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.control.LookControl;
@@ -24,15 +25,14 @@ public abstract class MobEntityController extends AbstractEntityController {
     private final Class<?> clazz;
 
     protected MobEntityController(Class<?> clazz) {
-        super(clazz);
+        NMS.registerEntityClass(clazz, null);
         this.clazz = clazz;
     }
 
     @Override
     protected Entity createEntity(Location at, NPC npc) {
-        EntityType<?> type = NMSImpl.getEntityType(clazz);
-        net.minecraft.world.entity.Entity entity = createEntityFromClass(type, ((CraftWorld) at.getWorld()).getHandle(),
-                npc);
+        net.minecraft.world.entity.Entity entity = createEntityFromClass(NMSImpl.getEntityType(clazz),
+                ((CraftWorld) at.getWorld()).getHandle(), npc);
         if (entity instanceof Mob) {
             NMSImpl.clearGoals(npc, ((Mob) entity).goalSelector, ((Mob) entity).targetSelector);
             Mob mob = (Mob) entity;

@@ -11,7 +11,6 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.HumanEntity;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
 
@@ -24,7 +23,9 @@ import net.citizensnpcs.api.gui.InventoryMenuSlot;
 import net.citizensnpcs.api.gui.Menu;
 import net.citizensnpcs.api.gui.MenuContext;
 import net.citizensnpcs.api.persistence.Persist;
+import net.citizensnpcs.api.util.Messaging;
 import net.citizensnpcs.api.util.SpigotUtil;
+import net.citizensnpcs.trait.ShopTrait.NPCShopStorage;
 import net.citizensnpcs.util.InventoryMultiplexer;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
@@ -32,8 +33,6 @@ import net.kyori.adventure.platform.bukkit.BukkitComponentSerializer;
 import net.kyori.adventure.text.Component;
 
 public class ItemAction extends NPCShopAction {
-    @Persist
-    public boolean compareSimilarity = true;
     @Persist
     public List<ItemStack> items = Lists.newArrayList();
     @Persist
@@ -49,7 +48,19 @@ public class ItemAction extends NPCShopAction {
     }
 
     public ItemAction(List<ItemStack> items) {
-        this.items = items;
+        setItems(items);
+    }
+
+    private Boolean canAccept(InventoryMultiplexer im, int repeats) {
+        ItemStack[] inventory = im.getInventory();
+        int free = 0;
+        for (ItemStack stack : inventory) {
+            if (stack == null || stack.getType() == Material.AIR) {
+                free++;
+                continue;
+            }
+        }
+        return free >= items.size() * repeats;
     }
 
     @Override
@@ -70,9 +81,6 @@ public class ItemAction extends NPCShopAction {
 
     @Override
     public int getMaxRepeats(Entity entity, InventoryMultiplexer im) {
-        if (!(entity instanceof InventoryHolder))
-            return 0;
-
         ItemStack[] inventory = im.getInventory();
         List<Integer> req = items.stream().map(ItemStack::getAmount).collect(Collectors.toList());
         List<Integer> has = items.stream().map(i -> 0).collect(Collectors.toList());
@@ -81,18 +89,11 @@ public class ItemAction extends NPCShopAction {
             if (toMatch == null || toMatch.getType() == Material.AIR || tooDamaged(toMatch))
                 continue;
 
-            toMatch = toMatch.clone();
             for (int j = 0; j < items.size(); j++) {
                 if (!matches(items.get(j), toMatch))
                     continue;
-
-                int remaining = req.get(j);
-                int taken = toMatch.getAmount() > remaining ? remaining : toMatch.getAmount();
-                has.set(j, has.get(j) + taken);
-                if (toMatch.getAmount() - taken <= 0)
-                    break;
-
-                toMatch.setAmount(toMatch.getAmount() - taken);
+                has.set(j, has.get(j) + toMatch.getAmount());
+                break;
             }
         }
         return IntStream.range(0, req.size()).map(i -> req.get(i) == 0 ? 0 : has.get(i) / req.get(i)).reduce(Math::min)
@@ -130,28 +131,32 @@ public class ItemAction extends NPCShopAction {
     }
 
     @Override
-    public Transaction grant(Entity entity, InventoryMultiplexer im, int repeats) {
-        if (!(entity instanceof InventoryHolder))
-            return Transaction.fail();
-        return Transaction.create(() -> {
-            ItemStack[] inventory = im.getInventory();
-            int free = 0;
-            for (ItemStack stack : inventory) {
-                if (stack == null || stack.getType() == Material.AIR) {
-                    free++;
-                    continue;
-                }
-            }
-            return free >= items.size() * repeats;
-        }, () -> im.transact(inventory -> giveItems(inventory, repeats)),
-                () -> im.transact(inventory -> takeItems(inventory, repeats, true)));
+    public Transaction grant(NPCShopStorage storage, Entity entity, InventoryMultiplexer im, int repeats) {
+        return Transaction.create(() -> (storage.isUnlimited() || takeItems(storage.getInventory(), repeats, false))
+                && canAccept(im, repeats), () -> {
+                    storage.transact(inventory -> takeItems(inventory, repeats, true));
+                    im.transact(inventory -> giveItems(inventory, repeats));
+                }, () -> {
+                    storage.transact(inventory -> giveItems(inventory, repeats), items.size() * repeats);
+                    im.transact(inventory -> takeItems(inventory, repeats, true));
+                });
     }
 
     private boolean matches(ItemStack a, ItemStack b) {
+        if (metaFilter.size() > 0) {
+            // work around a Vanilla/Spigot bug: display name can be a Component with single string element or a
+            // Component with sibling text. even if the content is the same, isSimilar will treat these as separate.
+            // to fix this, go through a normalisation step. XXX: assumes that b is the Minecraft supplied item stack
+            // and a has already been normalised.
+            b.setItemMeta(b.getItemMeta());
+        }
+        if (Messaging.isDebugging()) {
+            Messaging.debug("Shop filter: comparing " + a + " to " + b + " (" + metaFilter + ") " + a.isSimilar(b));
+        }
         if (a.getType() != b.getType() || metaFilter.size() > 0 && !metaMatches(a, b, metaFilter))
             return false;
 
-        if (compareSimilarity && !a.isSimilar(b))
+        if (metaFilter.size() == 0 && !a.isSimilar(b))
             return false;
 
         return true;
@@ -168,10 +173,19 @@ public class ItemAction extends NPCShopAction {
             for (int i = 0; i < parts.length; i++) {
                 if (acc == null || cmp == null)
                     return false;
+                if (i < parts.length - 1 && !(acc instanceof Map))
+                    return false;
+                if (i < parts.length - 1 && !(cmp instanceof Map))
+                    return false;
                 Map<String, Object> nextAcc = (Map<String, Object>) acc;
                 Map<String, Object> nextCmp = (Map<String, Object>) cmp;
-                if (!nextAcc.containsKey(parts[i]) && !nextCmp.containsKey(parts[i]))
-                    continue;
+                if (!nextAcc.containsKey(parts[i])) {
+                    Messaging.warn("Probable error in shop filter: source item does not contain requested meta "
+                            + metaFilter + " actual meta is: " + source);
+                    return false;
+                }
+                if (!nextCmp.containsKey(parts[i]))
+                    return false;
                 acc = nextAcc.get(parts[i]);
                 cmp = nextCmp.get(parts[i]);
                 if (i == parts.length - 1 && !acc.equals(cmp))
@@ -179,6 +193,15 @@ public class ItemAction extends NPCShopAction {
             }
         }
         return true;
+    }
+
+    private void setItems(List<ItemStack> items) {
+        this.items = items;
+        if (metaFilter.size() == 0)
+            return;
+        for (ItemStack item : items) {
+            metaMatches(item, item, metaFilter);
+        }
     }
 
     private String stringify(ItemStack item) {
@@ -190,13 +213,15 @@ public class ItemAction extends NPCShopAction {
     }
 
     @Override
-    public Transaction take(Entity entity, InventoryMultiplexer im, int repeats) {
-        if (!(entity instanceof InventoryHolder))
-            return Transaction.fail();
-
-        return Transaction.create(() -> takeItems(im.getInventory(), repeats, false),
-                () -> im.transact(inventory -> takeItems(inventory, repeats, true)),
-                () -> im.transact(inventory -> giveItems(inventory, repeats)));
+    public Transaction take(NPCShopStorage storage, Entity entity, InventoryMultiplexer im, int repeats) {
+        return Transaction.create(() -> (storage.isUnlimited() || storage.canAdd(items.size() * repeats))
+                && takeItems(im.getInventory(), repeats, false), () -> {
+                    storage.transact(inventory -> giveItems(inventory, repeats), items.size() * repeats);
+                    im.transact(inventory -> takeItems(inventory, repeats, true));
+                }, () -> {
+                    storage.transact(inventory -> takeItems(inventory, repeats, true));
+                    im.transact(inventory -> giveItems(inventory, repeats));
+                });
     }
 
     private boolean takeItems(ItemStack[] contents, int repeats, boolean modify) {
@@ -243,7 +268,7 @@ public class ItemAction extends NPCShopAction {
         if (SpigotUtil.isUsing1_13API())
             return toMatch.getItemMeta() instanceof Damageable && ((Damageable) toMatch.getItemMeta()).getDamage() != 0;
 
-        return toMatch.getDurability() == toMatch.getType().getMaxDurability();
+        return toMatch.getType().getMaxDurability() != 0 && toMatch.getDurability() != 0;
     }
 
     @Menu(title = "Item editor", dimensions = { 4, 9 })
@@ -278,14 +303,9 @@ public class ItemAction extends NPCShopAction {
                     base.requireUndamaged ? ChatColor.GREEN + "On" : ChatColor.RED + "Off");
             ctx.getSlot(3 * 9 + 1)
                     .addClickHandler(InputMenus.toggler(res -> base.requireUndamaged = res, base.requireUndamaged));
-            ctx.getSlot(3 * 9 + 2).setItemStack(
-                    new ItemStack(Util.getFallbackMaterial("COMPARATOR", "REDSTONE_COMPARATOR")),
-                    "Compare item similarity", base.compareSimilarity ? ChatColor.GREEN + "On" : ChatColor.RED + "Off");
-            ctx.getSlot(3 * 9 + 2)
-                    .addClickHandler(InputMenus.toggler(res -> base.compareSimilarity = res, base.compareSimilarity));
-            ctx.getSlot(3 * 9 + 3).setItemStack(new ItemStack(Material.BOOK), "Component comparison filter",
+            ctx.getSlot(3 * 9 + 2).setItemStack(new ItemStack(Material.BOOK), "Component comparison filter",
                     Joiner.on("\n").join(base.metaFilter));
-            ctx.getSlot(3 * 9 + 3)
+            ctx.getSlot(3 * 9 + 2)
                     .addClickHandler(event -> ctx.getMenu()
                             .transition(InputMenus.stringSetter(() -> Joiner.on(',').join(base.metaFilter),
                                     res -> base.metaFilter = res == null ? null : Arrays.asList(res.split(",")))));
@@ -299,12 +319,17 @@ public class ItemAction extends NPCShopAction {
                     items.add(ctx.getSlot(i).getCurrentItem().clone());
                 }
             }
-            base.items = items;
+            base.setItems(items);
             callback.accept(items.isEmpty() ? null : base);
         }
     }
 
     public static class ItemActionGUI implements GUI {
+        @Override
+        public boolean canUse(HumanEntity entity) {
+            return entity.hasPermission("citizens.npc.shop.editor.actions.edit-item");
+        }
+
         @Override
         public InventoryMenuPage createEditor(NPCShopAction previous, Consumer<NPCShopAction> callback) {
             return new ItemActionEditor(previous == null ? new ItemAction() : (ItemAction) previous, callback);

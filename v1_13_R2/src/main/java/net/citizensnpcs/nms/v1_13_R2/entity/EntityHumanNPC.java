@@ -1,7 +1,6 @@
 package net.citizensnpcs.nms.v1_13_R2.entity;
 
 import java.io.IOException;
-import java.lang.invoke.MethodHandle;
 import java.util.List;
 import java.util.Map;
 
@@ -40,6 +39,7 @@ import net.citizensnpcs.trait.Gravity;
 import net.citizensnpcs.trait.SkinTrait;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
+import net.minecraft.server.v1_13_R2.AdvancementDataPlayer;
 import net.minecraft.server.v1_13_R2.AttributeInstance;
 import net.minecraft.server.v1_13_R2.AxisAlignedBB;
 import net.minecraft.server.v1_13_R2.BlockPosition;
@@ -50,6 +50,7 @@ import net.minecraft.server.v1_13_R2.EntityHuman;
 import net.minecraft.server.v1_13_R2.EntityPlayer;
 import net.minecraft.server.v1_13_R2.EnumGamemode;
 import net.minecraft.server.v1_13_R2.EnumItemSlot;
+import net.minecraft.server.v1_13_R2.EnumPistonReaction;
 import net.minecraft.server.v1_13_R2.EnumProtocolDirection;
 import net.minecraft.server.v1_13_R2.GenericAttributes;
 import net.minecraft.server.v1_13_R2.IBlockData;
@@ -66,6 +67,7 @@ import net.minecraft.server.v1_13_R2.SoundEffect;
 import net.minecraft.server.v1_13_R2.WorldServer;
 
 public class EntityHumanNPC extends EntityPlayer implements NPCHolder, SkinnableEntity {
+    private AdvancementDataPlayer advancements;
     private final Map<PathType, Float> bz = Maps.newEnumMap(PathType.class);
     private PlayerControllerJump controllerJump;
     private PlayerControllerMove controllerMove;
@@ -121,10 +123,20 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
     }
 
     @Override
+    public int bn() {
+        return NMS.getFallDistance(npc, super.bn());
+    }
+
+    @Override
     public void c(float f, float f1) {
         if (npc == null || !npc.isFlyable()) {
             super.c(f, f1);
         }
+    }
+
+    @Override
+    public float cG() {
+        return NMS.getJumpPower(npc, super.cG());
     }
 
     @Override
@@ -188,6 +200,16 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
     }
 
     @Override
+    public AdvancementDataPlayer getAdvancementData() {
+        if (npc == null)
+            return super.getAdvancementData();
+        if (advancements == null) {
+            advancements = new EmptyAdvancementDataPlayer(server, this);
+        }
+        return advancements;
+    }
+
+    @Override
     public CraftPlayer getBukkitEntity() {
         if (npc != null && !(bukkitEntity instanceof NPCHolder)) {
             bukkitEntity = new PlayerNPC(this);
@@ -218,6 +240,11 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
             return new ChatComponentText("");
         return npc != null ? (IChatBaseComponent) Messaging.minecraftComponentFromRawMessage(npc.getRawName())
                 : super.getPlayerListName();
+    }
+
+    @Override
+    public EnumPistonReaction getPushReaction() {
+        return Util.callPistonPushEvent(npc) ? EnumPistonReaction.IGNORE : super.getPushReaction();
     }
 
     @Override
@@ -256,16 +283,7 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
         controllerJump = new PlayerControllerJump(this);
         controllerMove = new PlayerControllerMove(this);
         navigation = new PlayerNavigation(this, world);
-        invulnerableTicks = 0;
-        NMS.setStepHeight(getBukkitEntity(), 1); // the default (0) breaks step climbing
         setSkinFlags((byte) 0xFF);
-        EmptyAdvancementDataPlayer.clear(this.getAdvancementData());
-        try {
-            ADVANCEMENT_DATA_PLAYER.invoke(this,
-                    new EmptyAdvancementDataPlayer(minecraftServer, CitizensAPI.getDataFolder().getParentFile(), this));
-        } catch (Throwable e) {
-            e.printStackTrace();
-        }
     }
 
     @Override
@@ -312,6 +330,7 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
             super.playerTick();
             return;
         }
+        NMSImpl.callNPCMoveEvent(this);
         W();
         boolean navigating = npc.getNavigator().isNavigating() || controllerMove.b();
         if (!navigating && getBukkitEntity() != null
@@ -528,7 +547,6 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
         }
     }
 
-    private static MethodHandle ADVANCEMENT_DATA_PLAYER = NMS.getFinalSetter(EntityPlayer.class, "cf");
     private static final float EPSILON = 0.005F;
     private static final Location LOADED_LOCATION = new Location(null, 0, 0, 0);
 }

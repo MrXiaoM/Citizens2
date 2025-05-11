@@ -24,7 +24,6 @@ import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.material.Fluid;
@@ -33,9 +32,6 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public class ItemController extends AbstractEntityController {
-    public ItemController() {
-        super(EntityItemNPC.class);
-    }
 
     @Override
     protected org.bukkit.entity.Entity createEntity(Location at, NPC npc) {
@@ -50,11 +46,6 @@ public class ItemController extends AbstractEntityController {
     }
 
     public static class EntityItemNPC extends ItemEntity implements NPCHolder {
-        @Override
-        public boolean broadcastToPlayer(ServerPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityItemNPC(EntityType<? extends ItemEntity> types, Level level) {
@@ -65,6 +56,11 @@ public class ItemController extends AbstractEntityController {
         public EntityItemNPC(Level world, NPC npc, double x, double y, double z, ItemStack stack) {
             super(world, x, y, z, stack);
             this.npc = (CitizensNPC) npc;
+        }
+
+        @Override
+        public boolean broadcastToPlayer(ServerPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
         }
 
         @Override
@@ -94,13 +90,6 @@ public class ItemController extends AbstractEntityController {
         @Override
         protected AABB makeBoundingBox() {
             return NMSBoundingBox.makeBB(npc, super.makeBoundingBox());
-        }
-
-        @Override
-        public void playerTouch(Player entityhuman) {
-            if (npc == null) {
-                super.playerTouch(entityhuman);
-            }
         }
 
         @Override

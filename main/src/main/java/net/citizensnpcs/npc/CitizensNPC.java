@@ -9,11 +9,13 @@ import java.util.function.Consumer;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Registry;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -46,6 +48,7 @@ import net.citizensnpcs.api.util.DataKey;
 import net.citizensnpcs.api.util.Messaging;
 import net.citizensnpcs.npc.ai.CitizensNavigator;
 import net.citizensnpcs.npc.skin.SkinnableEntity;
+import net.citizensnpcs.trait.AttributeTrait;
 import net.citizensnpcs.trait.CurrentLocation;
 import net.citizensnpcs.trait.Gravity;
 import net.citizensnpcs.trait.HologramTrait;
@@ -74,11 +77,13 @@ public class CitizensNPC extends AbstractNPC {
 
     @Override
     public boolean despawn(DespawnReason reason) {
+        if (reason == DespawnReason.RELOAD) {
+            for (Trait trait : traits.values()) {
+                HandlerList.unregisterAll(trait);
+            }
+        }
         if (getEntity() == null && reason != DespawnReason.DEATH) {
             Messaging.debug("Tried to despawn", this, "while already despawned, DespawnReason." + reason);
-            if (reason == DespawnReason.RELOAD) {
-                unloadEvents();
-            }
             return true;
         }
         NPCDespawnEvent event = new NPCDespawnEvent(this, reason);
@@ -99,9 +104,6 @@ public class CitizensNPC extends AbstractNPC {
             PlayerUpdateTask.deregisterPlayer(getEntity());
         }
         navigator.onDespawn();
-        if (reason == DespawnReason.RELOAD) {
-            unloadEvents();
-        }
         for (Trait trait : new ArrayList<>(traits.values())) {
             trait.onDespawn(reason);
         }
@@ -110,6 +112,8 @@ public class CitizensNPC extends AbstractNPC {
         if (getEntity() instanceof SkinnableEntity) {
             ((SkinnableEntity) getEntity()).getSkinTracker().onRemoveNPC();
         }
+        getEntity().removeMetadata("NPC", CitizensAPI.getPlugin());
+        getEntity().removeMetadata("NPC-ID", CitizensAPI.getPlugin());
         if (reason == DespawnReason.DEATH) {
             entityController.die();
         } else {
@@ -262,7 +266,8 @@ public class CitizensNPC extends AbstractNPC {
         if (destination == null) {
             NMS.cancelMoveDestination(getEntity());
         } else {
-            NMS.setDestination(getEntity(), destination.getX(), destination.getY(), destination.getZ(), 1);
+            NMS.setDestination(getEntity(), destination.getX(), destination.getY(), destination.getZ(),
+                    getNavigator().getDefaultParameters().speedModifier());
         }
     }
 
@@ -281,17 +286,17 @@ public class CitizensNPC extends AbstractNPC {
     }
 
     @Override
+    public boolean shouldRemoveFromPlayerList() {
+        return data().get(NPC.Metadata.REMOVE_FROM_PLAYERLIST, Setting.REMOVE_PLAYERS_FROM_PLAYER_LIST.asBoolean());
+    }
+
+    @Override
     public boolean shouldRemoveFromTabList() {
         return data().get(NPC.Metadata.REMOVE_FROM_TABLIST, Setting.DISABLE_TABLIST.asBoolean());
     }
 
     @Override
-    public boolean spawn(Location at) {
-        return spawn(at, SpawnReason.PLUGIN);
-    }
-
-    @Override
-    public boolean spawn(Location at, SpawnReason reason) {
+    public boolean spawn(Location at, SpawnReason reason, Consumer<Entity> callback) {
         Objects.requireNonNull(at, "location cannot be null");
         Objects.requireNonNull(reason, "reason cannot be null");
         if (getEntity() != null) {
@@ -338,7 +343,6 @@ public class CitizensNPC extends AbstractNPC {
             data().remove(NPC.Metadata.NPC_SPAWNING_IN_PROGRESS);
             return false;
         }
-        // Spawning the entity will initially create an entity tracker that is not controlled by Citizens
         NMS.setLocationDirectly(getEntity(), at);
         NMS.setHeadAndBodyYaw(getEntity(), at.getYaw());
 
@@ -391,23 +395,20 @@ public class CitizensNPC extends AbstractNPC {
                     LivingEntity entity = (LivingEntity) getEntity();
                     entity.setRemoveWhenFarAway(false);
 
-                    if (NMS.getStepHeight(entity) < 1) {
-                        NMS.setStepHeight(entity, 1);
+                    if (type == EntityType.PLAYER || Util.isHorse(type)) {
+                        if (SUPPORT_ATTRIBUTES && !hasTrait(AttributeTrait.class)
+                                || !getTrait(AttributeTrait.class).hasAttribute(Util
+                                        .getRegistryValue(Registry.ATTRIBUTE, "generic.step_height", "step_height"))) {
+                            NMS.setStepHeight(entity, 1);
+                        }
                     }
                     if (type == EntityType.PLAYER) {
                         PlayerUpdateTask.registerPlayer(getEntity());
                     } else if (data().has(NPC.Metadata.AGGRESSIVE)) {
                         NMS.setAggressive(entity, data().<Boolean> get(NPC.Metadata.AGGRESSIVE));
                     }
-                    if (SUPPORT_NODAMAGE_TICKS && (Setting.DEFAULT_SPAWN_NODAMAGE_DURATION.asTicks() != 20
-                            || data().has(NPC.Metadata.SPAWN_NODAMAGE_TICKS))) {
-                        try {
-                            entity.setNoDamageTicks(data().get(NPC.Metadata.SPAWN_NODAMAGE_TICKS,
-                                    Setting.DEFAULT_SPAWN_NODAMAGE_DURATION.asTicks()));
-                        } catch (NoSuchMethodError err) {
-                            SUPPORT_NODAMAGE_TICKS = false;
-                        }
-                    }
+                    entity.setNoDamageTicks(data().get(NPC.Metadata.SPAWN_NODAMAGE_TICKS,
+                            Setting.DEFAULT_SPAWN_NODAMAGE_DURATION.asTicks()));
                 }
                 if (requiresNameHologram() && !hasTrait(HologramTrait.class)) {
                     addTrait(HologramTrait.class);
@@ -418,6 +419,9 @@ public class CitizensNPC extends AbstractNPC {
 
                 Messaging.debug("Spawned", CitizensNPC.this, "SpawnReason." + reason);
                 cancel.run();
+                if (callback != null) {
+                    callback.accept(getEntity());
+                }
             }
         };
         if (getEntity() != null && getEntity().isValid()) {
@@ -592,13 +596,17 @@ public class CitizensNPC extends AbstractNPC {
         if (!SUPPORT_USE_ITEM)
             return;
 
+        if (data().has("citizens-was-using-item")) {
+            PlayerAnimation.STOP_USE_ITEM.play(player, 64);
+            data().remove("citizens-was-using-item");
+        }
         try {
             if (useItem) {
-                PlayerAnimation.STOP_USE_ITEM.play(player, 64);
                 PlayerAnimation.START_USE_MAINHAND_ITEM.play(player, 64);
+                data().set("citizens-was-using-item", true);
             } else if (offhand) {
-                PlayerAnimation.STOP_USE_ITEM.play(player, 64);
                 PlayerAnimation.START_USE_OFFHAND_ITEM.play(player, 64);
+                data().set("citizens-was-using-item", true);
             }
         } catch (UnsupportedOperationException ex) {
             SUPPORT_USE_ITEM = false;
@@ -606,17 +614,12 @@ public class CitizensNPC extends AbstractNPC {
     }
 
     private static final SetMultimap<ChunkCoord, NPC> CHUNK_LOADERS = HashMultimap.create();
+    private static boolean SUPPORT_ATTRIBUTES = false;
     private static boolean SUPPORT_GLOWING = false;
-    private static boolean SUPPORT_NODAMAGE_TICKS = false;
     private static boolean SUPPORT_PICKUP_ITEMS = false;
     private static boolean SUPPORT_SILENT = false;
     private static boolean SUPPORT_USE_ITEM = true;
     static {
-        try {
-            Entity.class.getMethod("setNoDamageTicks", int.class);
-            SUPPORT_NODAMAGE_TICKS = true;
-        } catch (NoSuchMethodException | SecurityException e) {
-        }
         try {
             Entity.class.getMethod("setGlowing", boolean.class);
             SUPPORT_GLOWING = true;
@@ -631,6 +634,11 @@ public class CitizensNPC extends AbstractNPC {
             LivingEntity.class.getMethod("setCanPickupItems", boolean.class);
             SUPPORT_PICKUP_ITEMS = true;
         } catch (NoSuchMethodException | SecurityException e) {
+        }
+        try {
+            Class.forName("org.bukkit.attribute.Attribute");
+            SUPPORT_ATTRIBUTES = true;
+        } catch (ClassNotFoundException e) {
         }
     }
 }

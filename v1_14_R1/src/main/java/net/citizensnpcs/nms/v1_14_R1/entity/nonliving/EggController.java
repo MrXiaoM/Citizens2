@@ -31,9 +31,7 @@ import net.minecraft.server.v1_14_R1.World;
 import net.minecraft.server.v1_14_R1.WorldServer;
 
 public class EggController extends AbstractEntityController {
-    public EggController() {
-        super(EntityEggNPC.class);
-    }
+
 
     @Override
     protected Entity createEntity(Location at, NPC npc) {
@@ -62,11 +60,6 @@ public class EggController extends AbstractEntityController {
     }
 
     public static class EntityEggNPC extends EntityEgg implements NPCHolder {
-        @Override
-        public boolean a(EntityPlayer player) {
-            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
-        }
-
         private final CitizensNPC npc;
 
         public EntityEggNPC(EntityTypes<? extends EntityEgg> types, World world) {
@@ -86,6 +79,11 @@ public class EggController extends AbstractEntityController {
         @Override
         public void a(AxisAlignedBB bb) {
             super.a(NMSBoundingBox.makeBB(npc, bb));
+        }
+
+        @Override
+        public boolean a(EntityPlayer player) {
+            return NMS.shouldBroadcastToPlayer(npc, () -> super.a(player));
         }
 
         @Override

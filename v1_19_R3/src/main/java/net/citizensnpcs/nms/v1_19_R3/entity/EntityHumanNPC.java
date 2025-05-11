@@ -43,6 +43,7 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.contents.LiteralContents;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.PlayerAdvancements;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerPlayerGameMode;
@@ -54,15 +55,12 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.Fluid;
+import net.minecraft.world.level.material.PushReaction;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public class EntityHumanNPC extends ServerPlayer implements NPCHolder, SkinnableEntity, ForwardingMobAI {
-    @Override
-    public boolean broadcastToPlayer(ServerPlayer player) {
-        return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
-    }
-
+    private PlayerAdvancements advancements;
     private MobAI ai;
     private int jumpTicks = 0;
     private final CitizensNPC npc;
@@ -85,6 +83,11 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
         } else {
             skinTracker = null;
         }
+    }
+
+    @Override
+    public boolean broadcastToPlayer(ServerPlayer player) {
+        return NMS.shouldBroadcastToPlayer(npc, () -> super.broadcastToPlayer(player));
     }
 
     @Override
@@ -120,6 +123,7 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
             super.doTick();
             return;
         }
+        NMSImpl.callNPCMoveEvent(this);
         super.baseTick();
         boolean navigating = npc.getNavigator().isNavigating() || ai.getMoveControl().hasWanted();
         if (!navigating && getBukkitEntity() != null
@@ -139,6 +143,7 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
             moveOnCurrentHeading();
         }
         tickAI();
+        tryCheckInsideBlocks();
         detectEquipmentUpdates();
         noPhysics = isSpectator();
         if (isSpectator()) {
@@ -170,6 +175,17 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
     }
 
     @Override
+    public PlayerAdvancements getAdvancements() {
+        if (npc == null)
+            return super.getAdvancements();
+        if (advancements == null) {
+            advancements = new EmptyAdvancementDataPlayer(getServer().getFixerUpper(), getServer().getPlayerList(),
+                    this);
+        }
+        return advancements;
+    }
+
+    @Override
     public MobAI getAI() {
         return ai;
     }
@@ -194,8 +210,23 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
     }
 
     @Override
+    public float getJumpPower() {
+        return NMS.getJumpPower(npc, super.getJumpPower());
+    }
+
+    @Override
+    public int getMaxFallDistance() {
+        return NMS.getFallDistance(npc, super.getMaxFallDistance());
+    }
+
+    @Override
     public NPC getNPC() {
         return npc;
+    }
+
+    @Override
+    public PushReaction getPistonPushReaction() {
+        return Util.callPistonPushEvent(npc) ? PushReaction.IGNORE : super.getPistonPushReaction();
     }
 
     @Override
@@ -251,13 +282,7 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
             conn.setListener(connection);
         } catch (IOException e) {
         }
-        this.invulnerableTime = 0;
-        NMS.setStepHeight(getBukkitEntity(), 1); // the default (0) breaks step climbing
         setSkinFlags((byte) 0xFF);
-        EmptyAdvancementDataPlayer.clear(this.getAdvancements());
-        NMSImpl.setAdvancement(this.getBukkitEntity(),
-                new EmptyAdvancementDataPlayer(minecraftServer.getFixerUpper(), minecraftServer.getPlayerList(),
-                        minecraftServer.getAdvancements(), CitizensAPI.getDataFolder().getParentFile(), this));
     }
 
     @Override
@@ -364,6 +389,17 @@ public class EntityHumanNPC extends ServerPlayer implements NPCHolder, Skinnable
         Bukkit.getServer().getPluginManager().unsubscribeFromPermission("bukkit.broadcast.user", getBukkitEntity());
         updatePackets(npc.getNavigator().isNavigating());
         npc.update();
+        if (NMSImpl.PAPER_PLAYER_MOB_COUNTS != null && npc.shouldRemoveFromPlayerList()) {
+            int[] counts;
+            try {
+                counts = (int[]) NMSImpl.PAPER_PLAYER_MOB_COUNTS.invoke(this);
+                for (int i = 0; i < counts.length; i++) {
+                    counts[i] = 0;
+                }
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     @Override

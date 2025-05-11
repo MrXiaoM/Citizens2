@@ -18,9 +18,13 @@ import java.util.stream.Collectors;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Color;
+import org.bukkit.Keyed;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
 import org.bukkit.World;
+import org.bukkit.attribute.Attribute;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Entity;
@@ -37,10 +41,8 @@ import org.bukkit.util.Vector;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
-import com.google.common.collect.Iterables;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
-import com.google.common.primitives.Ints;
 
 import net.citizensnpcs.Settings.Setting;
 import net.citizensnpcs.api.CitizensAPI;
@@ -51,6 +53,7 @@ import net.citizensnpcs.api.event.NPCCollisionEvent;
 import net.citizensnpcs.api.event.NPCPistonPushEvent;
 import net.citizensnpcs.api.event.NPCPushEvent;
 import net.citizensnpcs.api.npc.NPC;
+import net.citizensnpcs.api.trait.trait.Equipment.EquipmentSlot;
 import net.citizensnpcs.api.util.BoundingBox;
 import net.citizensnpcs.api.util.Messaging;
 import net.citizensnpcs.api.util.Placeholders;
@@ -184,6 +187,17 @@ public class Util {
         NMS.look(entity, to, headOnly, immediate);
     }
 
+    public static Attribute getAttribute(String attribute) {
+        if (!SpigotUtil.isRegistryKeyed(Attribute.class)) {
+            try {
+                return Attribute.valueOf(attribute.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignore) {
+                return null;
+            }
+        }
+        return getRegistryValue(Registry.ATTRIBUTE, attribute);
+    }
+
     public static Location getCenterLocation(Block block) {
         Location bloc = block.getLocation();
         Location center = new Location(bloc.getWorld(), bloc.getBlockX() + 0.5, bloc.getBlockY(),
@@ -196,6 +210,9 @@ public class Util {
     }
 
     public static Scoreboard getDummyScoreboard() {
+        if (DUMMY_SCOREBOARD == null) {
+            DUMMY_SCOREBOARD = Bukkit.getScoreboardManager().getNewScoreboard();
+        }
         return DUMMY_SCOREBOARD;
     }
 
@@ -245,7 +262,18 @@ public class Util {
     }
 
     public static Random getFastRandom() {
-        return new XORShiftRNG();
+        return RANDOM;
+    }
+
+    public static <T extends Keyed> T getRegistryValue(Registry<T> registry, String... keyCandidates) {
+        for (String keyCandidate : keyCandidates) {
+            final NamespacedKey key = SpigotUtil.getKey(keyCandidate);
+            final T value = registry.get(key);
+            if (value != null)
+                return value;
+
+        }
+        return null;
     }
 
     public static String getTeamName(UUID id) {
@@ -300,6 +328,11 @@ public class Util {
         return BEDROCK_NAME_PREFIX != null ? name.startsWith(BEDROCK_NAME_PREFIX) : false;
     }
 
+    public static boolean isEquippable(ItemStack stack, EquipmentSlot slot) {
+        return SUPPORTS_HAS_EQUIPPABLE && stack.hasItemMeta() && stack.getItemMeta().hasEquippable()
+                && stack.getItemMeta().getEquippable().getSlot() == slot.toBukkit();
+    }
+
     public static boolean isHorse(EntityType type) {
         String name = type.name();
         return type == EntityType.HORSE || name.contains("_HORSE") || name.equals("DONKEY") || name.equals("MULE")
@@ -344,7 +377,6 @@ public class Util {
             if (toMatch.equalsIgnoreCase(check.name())
                     || toMatch.equalsIgnoreCase("item") && check.name().equals("DROPPED_ITEM"))
                 return check; // check for an exact match first
-
         }
         for (T check : values) {
             String name = check.name().toLowerCase(Locale.ROOT);
@@ -389,32 +421,6 @@ public class Util {
             return Color.fromARGB(list.get(3), list.get(0), list.get(1), list.get(2));
         }
         throw new NumberFormatException();
-    }
-
-    public static ItemStack parseItemStack(ItemStack stack, String item) {
-        if (stack == null || stack.getType() == Material.AIR) {
-            stack = new ItemStack(Material.STONE, 1);
-        }
-        if (item.charAt(0) == '{') {
-            try {
-                Bukkit.getUnsafe().modifyItemStack(stack, item);
-            } catch (Throwable t) {
-                t.printStackTrace();
-            }
-        } else if (!item.isEmpty()) {
-            String[] parts = Iterables.toArray(Splitter.on(',').split(item), String.class);
-            if (parts.length == 0)
-                return stack;
-            stack.setType(Material.matchMaterial(parts[0]));
-            if (parts.length > 1) {
-                stack.setAmount(Ints.tryParse(parts[1]));
-            }
-            if (parts.length > 2) {
-                Integer durability = Ints.tryParse(parts[2]);
-                stack.setDurability(durability.shortValue());
-            }
-        }
-        return stack;
     }
 
     public static int parseTicks(String raw) {
@@ -464,7 +470,7 @@ public class Util {
         }
         boolean wasOp = clicker.isOp();
         if (op) {
-            clicker.setOp(true);
+            NMS.setOpWithoutSaving(clicker, true);
         }
         try {
             if (bungeeServer != null) {
@@ -480,7 +486,10 @@ public class Util {
             t.printStackTrace();
         } finally {
             if (op) {
-                clicker.setOp(wasOp);
+                if (!wasOp) {
+                    // Avoid a disk I/O operation in Player#setOp(boolean)
+                    NMS.setOpWithoutSaving(clicker, false);
+                }
             }
         }
     }
@@ -617,15 +626,17 @@ public class Util {
 
     private static String BEDROCK_NAME_PREFIX = ".";
     private static Scoreboard DUMMY_SCOREBOARD;
+    private static final Random RANDOM = new XORShiftRNG();
     private static boolean SUPPORTS_BUKKIT_GETENTITY = true;
+    private static boolean SUPPORTS_HAS_EQUIPPABLE = false;
     private static final DecimalFormat TWO_DIGIT_DECIMAL = new DecimalFormat();
-
     static {
-        try {
-            DUMMY_SCOREBOARD = Bukkit.getScoreboardManager().getNewScoreboard();
-        } catch (NullPointerException e) {
-        }
         TWO_DIGIT_DECIMAL.setMaximumFractionDigits(2);
+        try {
+            ItemMeta.class.getMethod("hasEquippable");
+        } catch (NoSuchMethodException e) {
+            SUPPORTS_HAS_EQUIPPABLE = false;
+        }
         try {
             Bukkit.class.getMethod("getEntity", UUID.class);
         } catch (Exception e) {

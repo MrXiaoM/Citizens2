@@ -29,10 +29,6 @@ import com.google.common.collect.Maps;
 import com.mojang.authlib.GameProfile;
 
 import ch.ethz.globis.phtree.PhTreeHelper;
-import net.byteflux.libby.BukkitLibraryManager;
-import net.byteflux.libby.Library;
-import net.byteflux.libby.LibraryManager;
-import net.byteflux.libby.logging.LogLevel;
 import net.citizensnpcs.Settings.Setting;
 import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.CitizensPlugin;
@@ -41,7 +37,6 @@ import net.citizensnpcs.api.NMSHelper;
 import net.citizensnpcs.api.ai.speech.SpeechContext;
 import net.citizensnpcs.api.command.CommandManager;
 import net.citizensnpcs.api.command.Injector;
-import net.citizensnpcs.api.event.CitizensDisableEvent;
 import net.citizensnpcs.api.event.CitizensEnableEvent;
 import net.citizensnpcs.api.event.CitizensPreReloadEvent;
 import net.citizensnpcs.api.event.CitizensReloadEvent;
@@ -55,7 +50,6 @@ import net.citizensnpcs.api.npc.SimpleNPCDataStore;
 import net.citizensnpcs.api.npc.templates.TemplateRegistry;
 import net.citizensnpcs.api.trait.Trait;
 import net.citizensnpcs.api.trait.TraitFactory;
-import net.citizensnpcs.api.trait.TraitInfo;
 import net.citizensnpcs.api.util.Messaging;
 import net.citizensnpcs.api.util.Placeholders;
 import net.citizensnpcs.api.util.SpigotUtil;
@@ -75,7 +69,6 @@ import net.citizensnpcs.npc.CitizensTraitFactory;
 import net.citizensnpcs.npc.NPCSelector;
 import net.citizensnpcs.npc.skin.Skin;
 import net.citizensnpcs.npc.skin.profile.ProfileFetcher;
-import net.citizensnpcs.trait.ShopTrait;
 import net.citizensnpcs.trait.shop.StoredShops;
 import net.citizensnpcs.util.Messages;
 import net.citizensnpcs.util.NMS;
@@ -195,6 +188,10 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
         return commands;
     }
 
+    public NPCDataStore getDefaultNPCDataStore() {
+        return saves;
+    }
+
     @Override
     public net.citizensnpcs.api.npc.NPCSelector getDefaultNPCSelector() {
         return selector;
@@ -282,54 +279,6 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
         return traitFactory;
     }
 
-    private void loadMavenLibraries() {
-        getLogger().info("Loading external libraries");
-
-        LibraryManager lib = new BukkitLibraryManager(this);
-        lib.addMavenCentral();
-        lib.setLogLevel(LogLevel.WARN);
-        // Unfortunately, transitive dependency management is not supported in this library.
-        lib.loadLibrary(
-                Library.builder().groupId("ch{}ethz{}globis{}phtree").artifactId("phtree").version("2.8.0").build());
-        lib.loadLibrary(Library.builder().groupId("it{}unimi{}dsi").artifactId("fastutil").version("8.5.14")
-                .relocate("it{}unimi{}dsi", "clib{}fastutil").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-text-minimessage")
-                .version("4.17.0").relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-api").version("4.17.0")
-                .relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-key").version("4.17.0")
-                .relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("examination-api").version("1.3.0")
-                .relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("examination-string").version("1.3.0")
-                .relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-platform-bukkit").version("4.3.3")
-                .relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-platform-api").version("4.3.3")
-                .relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-text-serializer-bungeecord")
-                .version("4.3.3").relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-text-serializer-legacy")
-                .version("4.13.1").relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-nbt").version("4.13.1")
-                .relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-text-serializer-gson")
-                .version("4.13.1").relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-text-serializer-gson-legacy-impl")
-                .version("4.13.1").relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-platform-facet").version("4.3.3")
-                .relocate("net{}kyori", "clib{}net{}kyori").build());
-        lib.loadLibrary(Library.builder().groupId("net{}kyori").artifactId("adventure-platform-viaversion")
-                .version("4.3.3").relocate("net{}kyori", "clib{}net{}kyori").build());
-        try {
-            Class.forName("org.joml.Vector3f");
-        } catch (Throwable t) {
-            lib.loadLibrary(Library.builder().groupId("org{}joml").artifactId("joml").version("1.10.5").build());
-        }
-        PhTreeHelper.enablePooling(false);
-        PhTreeHelper.MAX_OBJECT_POOL_SIZE = 0;
-    }
-
     @Override
     public boolean onCommand(CommandSender sender, org.bukkit.command.Command command, String cmdName, String[] args) {
         Object[] methodArgs = { sender, selector == null ? null : selector.getSelected(sender) };
@@ -348,7 +297,6 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
         if (!enabled)
             return;
 
-        Bukkit.getPluginManager().callEvent(new CitizensDisableEvent());
         Editor.leaveAll();
         despawnNPCs(saveOnDisable);
         HandlerList.unregisterAll(this);
@@ -366,7 +314,10 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
 
     @Override
     public void onEnable() {
-        loadMavenLibraries();
+        PhTreeHelper.enablePooling(false);
+        PhTreeHelper.ARRAY_POOLING_POOL_SIZE = 0;
+        PhTreeHelper.ARRAY_POOLING_MAX_ARRAY_SIZE = 0;
+        PhTreeHelper.MAX_OBJECT_POOL_SIZE = 0;
 
         CitizensAPI.setImplementation(this);
         config = new Settings(getDataFolder());
@@ -398,13 +349,12 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
         locationLookup.runTaskTimer(CitizensAPI.getPlugin(), 0, 5);
 
         traitFactory = new CitizensTraitFactory(this);
-        traitFactory.registerTrait(TraitInfo.create(ShopTrait.class).withSupplier(() -> new ShopTrait(shops)));
         selector = new NPCSelector(this);
         templateRegistry = new TemplateRegistry(new File(getDataFolder(), "templates").toPath());
         if (!new File(getDataFolder(), "skins").exists()) {
             new File(getDataFolder(), "skins").mkdir();
         }
-        Bukkit.getPluginManager().registerEvents(new EventListen(), this);
+        Bukkit.getPluginManager().registerEvents(new EventListen(this), this);
         Bukkit.getPluginManager().registerEvents(new Placeholders(), this);
 
         Plugin papi = Bukkit.getPluginManager().getPlugin("PlaceholderAPI");
@@ -455,13 +405,13 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
     }
 
     public void reload() throws NPCLoadException {
+        getServer().getPluginManager().callEvent(new CitizensPreReloadEvent());
+
         Editor.leaveAll();
         config.reload();
         despawnNPCs(false);
         ProfileFetcher.reset();
         Skin.clearCache();
-
-        getServer().getPluginManager().callEvent(new CitizensPreReloadEvent());
 
         templateRegistry = new TemplateRegistry(new File(getDataFolder(), "templates").toPath());
 

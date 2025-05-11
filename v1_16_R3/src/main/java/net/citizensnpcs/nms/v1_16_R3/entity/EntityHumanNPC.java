@@ -39,6 +39,7 @@ import net.citizensnpcs.trait.Gravity;
 import net.citizensnpcs.trait.SkinTrait;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
+import net.minecraft.server.v1_16_R3.AdvancementDataPlayer;
 import net.minecraft.server.v1_16_R3.AxisAlignedBB;
 import net.minecraft.server.v1_16_R3.BlockPosition;
 import net.minecraft.server.v1_16_R3.ChatComponentText;
@@ -48,6 +49,7 @@ import net.minecraft.server.v1_16_R3.EntityHuman;
 import net.minecraft.server.v1_16_R3.EntityPlayer;
 import net.minecraft.server.v1_16_R3.EnumGamemode;
 import net.minecraft.server.v1_16_R3.EnumItemSlot;
+import net.minecraft.server.v1_16_R3.EnumPistonReaction;
 import net.minecraft.server.v1_16_R3.EnumProtocolDirection;
 import net.minecraft.server.v1_16_R3.GenericAttributes;
 import net.minecraft.server.v1_16_R3.IBlockData;
@@ -63,6 +65,7 @@ import net.minecraft.server.v1_16_R3.Vec3D;
 import net.minecraft.server.v1_16_R3.WorldServer;
 
 public class EntityHumanNPC extends EntityPlayer implements NPCHolder, SkinnableEntity, ForwardingMobAI {
+    private AdvancementDataPlayer advancements;
     private MobAI ai;
     private final Map<EnumItemSlot, ItemStack> equipmentCache = Maps.newEnumMap(EnumItemSlot.class);
     private int jumpTicks = 0;
@@ -101,6 +104,11 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
         if (npc == null || !npc.isFlyable())
             return super.b(f, f1);
         return false;
+    }
+
+    @Override
+    public int bP() {
+        return NMS.getFallDistance(npc, super.bP());
     }
 
     @Override
@@ -148,12 +156,28 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
     }
 
     @Override
+    public float dJ() {
+        return NMS.getJumpPower(npc, super.dJ());
+    }
+
+    @Override
     public void g(Vec3D vec3d) {
         if (npc == null || !npc.isFlyable()) {
             super.g(vec3d);
         } else {
             NMSImpl.flyingMoveLogic(this, vec3d);
         }
+    }
+
+    @Override
+    public AdvancementDataPlayer getAdvancementData() {
+        if (npc == null)
+            return super.getAdvancementData();
+        if (advancements == null) {
+            advancements = new EmptyAdvancementDataPlayer(getMinecraftServer().getDataFixer(),
+                    getMinecraftServer().getPlayerList(), this);
+        }
+        return advancements;
     }
 
     @Override
@@ -180,6 +204,11 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
             return new ChatComponentText("");
         return npc != null ? (IChatBaseComponent) Messaging.minecraftComponentFromRawMessage(npc.getRawName())
                 : super.getPlayerListName();
+    }
+
+    @Override
+    public EnumPistonReaction getPushReaction() {
+        return Util.callPistonPushEvent(npc) ? EnumPistonReaction.IGNORE : super.getPushReaction();
     }
 
     @Override
@@ -228,13 +257,7 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
             conn.setPacketListener(playerConnection);
         } catch (IOException e) {
         }
-        invulnerableTicks = 0;
-        NMS.setStepHeight(getBukkitEntity(), 1); // the default (0) breaks step climbing
         setSkinFlags((byte) 0xFF);
-        EmptyAdvancementDataPlayer.clear(this.getAdvancementData());
-        NMSImpl.setAdvancement(this.getBukkitEntity(),
-                new EmptyAdvancementDataPlayer(minecraftServer.getDataFixer(), minecraftServer.getPlayerList(),
-                        minecraftServer.getAdvancementData(), CitizensAPI.getDataFolder().getParentFile(), this));
     }
 
     @Override
@@ -289,6 +312,7 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
             super.playerTick();
             return;
         }
+        NMSImpl.callNPCMoveEvent(this);
         entityBaseTick();
         boolean navigating = npc.getNavigator().isNavigating() || ai.getMoveControl().b();
         if (!navigating && getBukkitEntity() != null
@@ -366,6 +390,17 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder, Skinnable
         getCooldownTracker().a();
         if (!npc.hasTrait(EntityPoseTrait.class) || npc.getTraitNullable(EntityPoseTrait.class).getPose() == null) {
             eu();
+        }
+        if (NMSImpl.PAPER_PLAYER_MOB_COUNTS != null && npc.shouldRemoveFromPlayerList()) {
+            int[] counts;
+            try {
+                counts = (int[]) NMSImpl.PAPER_PLAYER_MOB_COUNTS.invoke(this);
+                for (int i = 0; i < counts.length; i++) {
+                    counts[i] = 0;
+                }
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
         }
     }
 
